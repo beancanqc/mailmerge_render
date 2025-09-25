@@ -1,17 +1,17 @@
-# Mail Merge SaaS Requirements
+# Mail Merge SaaS Requirements - Python 3.11 Compatible
 # Install with: pip install -r requirements.txt
 
 # Core dependencies
-flask==3.0.0
-pandas==2.2.2
-python-docx==1.1.0
+flask==2.3.3
+pandas==2.0.3
+python-docx==0.8.11
 openpyxl==3.1.2
 
 # PDF conversion (requires LibreOffice or Microsoft Word)
 docx2pdf==0.1.8
 
 # File handling
-werkzeug==3.0.1
+werkzeug==2.3.7
 
-# Optional: Better error handling and logging
+# Production server
 gunicorn==21.2.0

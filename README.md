@@ -36,7 +36,7 @@ site1/
    - Connect your GitHub repository
    - Configure:
      - **Name**: mail-merge-saas
-     - **Environment**: Python 3
+     - **Environment**: Python 3.11
      - **Build Command**: `pip install -r requirements.txt`
      - **Start Command**: `gunicorn app:app`
    - Click "Deploy"
