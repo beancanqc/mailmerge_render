@@ -1,8 +1,11 @@
-# Render Deployment Configuration
-# This file tells Render how to deploy your application
-
-# Build Command (install dependencies)
-pip install -r requirements.txt
-
-# Start Command (run the application)
-gunicorn app:app
+services:
+  - type: web
+    name: mailmerge-saas
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --host=0.0.0.0 --port=$PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
