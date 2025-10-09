@@ -237,30 +237,22 @@ document.addEventListener('DOMContentLoaded', function () {
         });
 
         if (mergeBtn) {
-            const allReady = templateUploaded && dataUploaded && formatSelected && !templateProcessing && !dataProcessing;
-
-            if (allReady) {
+            if (templateProcessing || dataProcessing) {
+                mergeBtn.disabled = true;
+                mergeBtn.textContent = 'Processing files...';
+                mergeBtn.style.opacity = '0.6';
+                mergeBtn.style.cursor = 'not-allowed';
+            } else if (!formatSelected) {
+                mergeBtn.disabled = true;
+                mergeBtn.textContent = 'Select output format';
+                mergeBtn.style.opacity = '0.6';
+                mergeBtn.style.cursor = 'not-allowed';
+            } else {
+                // Enable button - let the click handler check server status
                 mergeBtn.disabled = false;
                 mergeBtn.textContent = 'Start Mail Merge';
                 mergeBtn.style.opacity = '1';
                 mergeBtn.style.cursor = 'pointer';
-            } else {
-                mergeBtn.disabled = true;
-                if (templateProcessing || dataProcessing) {
-                    mergeBtn.textContent = 'Processing files...';
-                } else if (!templateUploaded && !dataUploaded) {
-                    mergeBtn.textContent = 'Upload files first';
-                } else if (!templateUploaded) {
-                    mergeBtn.textContent = 'Upload template first';
-                } else if (!dataUploaded) {
-                    mergeBtn.textContent = 'Upload data file first';
-                } else if (!formatSelected) {
-                    mergeBtn.textContent = 'Select output format';
-                } else {
-                    mergeBtn.textContent = 'Upload files first';
-                }
-                mergeBtn.style.opacity = '0.6';
-                mergeBtn.style.cursor = 'not-allowed';
             }
         }
     }
@@ -286,56 +278,67 @@ document.addEventListener('DOMContentLoaded', function () {
                 return;
             }
 
-            if (!templateUploaded || !dataUploaded) {
-                alert('Files are still being processed. Please wait a few seconds and try again.');
-                return;
-            }
+            // Check server status before proceeding
+            fetch('/check_status')
+                .then(response => response.json())
+                .then(statusData => {
+                    debugLog('Server status check:', statusData);
 
-            // Disable button and show processing
-            mergeBtn.disabled = true;
-            mergeBtn.textContent = 'Processing...';
-
-            // Send merge request
-            fetch('/process_merge', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    format: selectedFormat.value
-                })
-            })
-                .then(response => {
-                    debugLog('Process response status:', response.status);
-                    return response.json();
-                })
-                .then(data => {
-                    debugLog('Process response:', data);
-
-                    if (data.success) {
-                        // Success - trigger download
-                        const link = document.createElement('a');
-                        link.href = data.download_url;
-                        link.download = data.filename;
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
-
-                        // Show success message
-                        alert(data.message);
-                    } else {
-                        // Error
-                        alert(data.error || 'Processing failed');
+                    if (!statusData.template_loaded || !statusData.data_loaded) {
+                        alert('Files are still being processed. Please wait a few seconds and try again.');
+                        return;
                     }
+
+                    // Disable button and show processing
+                    mergeBtn.disabled = true;
+                    mergeBtn.textContent = 'Processing...';
+
+                    // Send merge request
+                    fetch('/process_merge', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            format: selectedFormat.value
+                        })
+                    })
+                        .then(response => {
+                            debugLog('Process response status:', response.status);
+                            return response.json();
+                        })
+                        .then(data => {
+                            debugLog('Process response:', data);
+
+                            if (data.success) {
+                                // Success - trigger download
+                                const link = document.createElement('a');
+                                link.href = data.download_url;
+                                link.download = data.filename;
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+
+                                // Show success message
+                                alert(data.message);
+                            } else {
+                                // Error
+                                alert(data.error || 'Processing failed');
+                            }
+                        })
+                        .catch(error => {
+                            debugLog('Processing error:', error);
+                            alert('Network error during processing');
+                        })
+                        .finally(() => {
+                            // Re-enable button
+                            mergeBtn.disabled = false;
+                            updateMergeButton(); // Update based on current state
+                        });
                 })
                 .catch(error => {
-                    debugLog('Processing error:', error);
-                    alert('Network error during processing');
-                })
-                .finally(() => {
-                    // Re-enable button
-                    mergeBtn.disabled = false;
-                    updateMergeButton(); // Update based on current state
+                    debugLog('Status check error:', error);
+                    alert('Unable to check file status. Please try again.');
                 });
         });
     }
