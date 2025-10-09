@@ -9,8 +9,5 @@ werkzeug==2.3.7
 python-docx==0.8.11
 openpyxl==3.1.2
 
-# PDF conversion (requires LibreOffice)
-docx2pdf==0.1.8
-
 # Production server
 gunicorn==21.2.0
