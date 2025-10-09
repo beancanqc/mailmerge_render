@@ -2,10 +2,15 @@ services:
   - type: web
     name: mailmerge-saas
     env: python
-    region: oregon
+    repo: https://github.com/beancanqc/mailmerge_render
+    buildCommand: |
+      apt-get update
+      apt-get install -y libreoffice-writer libreoffice-calc
+      pip install -r requirements.txt
+    startCommand: gunicorn app:app
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --host=0.0.0.0 --port=$PORT
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
+      - key: PORT
+        value: 10000

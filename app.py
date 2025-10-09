@@ -1,18 +1,19 @@
 """
 Mail Merge SaaS - Main Application
-Flask web server for Render deployment
+Flask web server for Render deployment with LibreOffice PDF conversion
 """
 
 import os
 import tempfile
 import zipfile
+import subprocess
+import shutil
 from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, request, jsonify, send_file, render_template_string, send_from_directory
 from werkzeug.utils import secure_filename
 from docx import Document
-from docx2pdf import convert
 import openpyxl
 import re
 from typing import List, Dict, Any, Optional
@@ -25,11 +26,47 @@ UPLOAD_FOLDER = tempfile.mkdtemp()
 OUTPUT_FOLDER = tempfile.mkdtemp()
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-ALLOWED_TEMPLATE_EXTENSIONS = {'docx', 'doc'}
-ALLOWED_DATA_EXTENSIONS = {'xlsx', 'xls'}
+ALLOWED_TEMPLATE_EXTENSIONS = {'docx'}
+ALLOWED_DATA_EXTENSIONS = {'xlsx'}
 
 def allowed_file(filename, allowed_extensions):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed_extensions
+
+def convert_docx_to_pdf(docx_path, output_dir):
+    """Convert DOCX to PDF using LibreOffice"""
+    try:
+        # Ensure output directory exists
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Try different LibreOffice commands
+        commands = [
+            ['libreoffice', '--headless', '--convert-to', 'pdf', '--outdir', output_dir, docx_path],
+            ['soffice', '--headless', '--convert-to', 'pdf', '--outdir', output_dir, docx_path],
+            ['loffice', '--headless', '--convert-to', 'pdf', '--outdir', output_dir, docx_path]
+        ]
+        
+        for cmd in commands:
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                if result.returncode == 0:
+                    # Find the generated PDF
+                    docx_name = os.path.splitext(os.path.basename(docx_path))[0]
+                    pdf_path = os.path.join(output_dir, f"{docx_name}.pdf")
+                    if os.path.exists(pdf_path):
+                        return True, pdf_path
+                    else:
+                        # Sometimes LibreOffice changes the filename, so search for any PDF
+                        for file in os.listdir(output_dir):
+                            if file.endswith('.pdf'):
+                                return True, os.path.join(output_dir, file)
+                break  # If one command works, don't try others
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                continue
+        
+        return False, f"LibreOffice conversion failed. Error: {result.stderr if 'result' in locals() else 'LibreOffice not found'}"
+        
+    except Exception as e:
+        return False, f"PDF conversion error: {str(e)}"
 
 class MailMergeProcessor:
     def __init__(self):
@@ -43,8 +80,8 @@ class MailMergeProcessor:
             if not os.path.exists(template_path):
                 raise FileNotFoundError(f"Template file not found: {template_path}")
             
-            if not template_path.lower().endswith(('.docx', '.doc')):
-                raise ValueError("Template must be a Word document (.docx or .doc)")
+            if not template_path.lower().endswith('.docx'):
+                raise ValueError("Template must be a Word document (.docx)")
             
             # Test if file can be opened
             doc = Document(template_path)
@@ -61,8 +98,8 @@ class MailMergeProcessor:
             if not os.path.exists(data_path):
                 raise FileNotFoundError(f"Data file not found: {data_path}")
             
-            if not data_path.lower().endswith(('.xlsx', '.xls')):
-                raise ValueError("Data file must be an Excel file (.xlsx or .xls)")
+            if not data_path.lower().endswith('.xlsx'):
+                raise ValueError("Data file must be an Excel file (.xlsx)")
             
             # Load Excel data using openpyxl
             workbook = openpyxl.load_workbook(data_path, data_only=True)
@@ -202,13 +239,21 @@ class MailMergeProcessor:
             if not self.generate_single_word(temp_word_path):
                 return False
             
-            # Convert to PDF
-            convert(temp_word_path, output_path)
+            # Convert to PDF using LibreOffice
+            output_dir = os.path.dirname(output_path)
+            success, result = convert_docx_to_pdf(temp_word_path, output_dir)
             
-            # Clean up temporary file
-            os.remove(temp_word_path)
-            
-            return True
+            if success:
+                # Move the PDF to the desired location if needed
+                if result != output_path:
+                    shutil.move(result, output_path)
+                
+                # Clean up temporary file
+                os.remove(temp_word_path)
+                return True
+            else:
+                print(f"PDF conversion failed: {result}")
+                return False
             
         except Exception as e:
             print(f"Error creating single PDF: {str(e)}")
@@ -229,11 +274,14 @@ class MailMergeProcessor:
             for filename in os.listdir(word_dir):
                 if filename.endswith('.docx'):
                     word_path = os.path.join(word_dir, filename)
-                    pdf_path = os.path.join(output_dir, filename.replace('.docx', '.pdf'))
-                    convert(word_path, pdf_path)
+                    
+                    # Convert to PDF
+                    success, pdf_path = convert_docx_to_pdf(word_path, output_dir)
+                    if not success:
+                        print(f"Failed to convert {filename} to PDF: {pdf_path}")
+                        return False
             
             # Clean up temporary Word files
-            import shutil
             shutil.rmtree(word_dir)
             
             return True
@@ -437,7 +485,6 @@ def process_merge():
                             zipf.write(file_path, arcname)
                 
                 # Clean up individual files
-                import shutil
                 shutil.rmtree(output_dir)
                 
                 return jsonify({
@@ -471,4 +518,5 @@ def health_check():
 
 if __name__ == '__main__':
     # Development server
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(debug=False, host='0.0.0.0', port=port)
