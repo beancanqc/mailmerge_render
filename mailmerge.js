@@ -11,6 +11,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
     let templateUploaded = false;
     let dataUploaded = false;
+    let templateProcessing = false;
+    let dataProcessing = false;
 
     // Debug function
     function debugLog(message) {
@@ -193,21 +195,39 @@ document.addEventListener('DOMContentLoaded', function () {
         debugLog('Update button state:', {
             templateUploaded,
             dataUploaded,
+            templateProcessing,
+            dataProcessing,
             formatSelected: formatSelected ? formatSelected.value : 'none'
         });
 
         if (mergeBtn) {
-            if (templateUploaded && dataUploaded && formatSelected) {
+            const allReady = templateUploaded && dataUploaded && formatSelected && !templateProcessing && !dataProcessing;
+
+            if (allReady) {
                 mergeBtn.disabled = false;
                 mergeBtn.textContent = 'Start Mail Merge';
+                mergeBtn.style.opacity = '1';
+                mergeBtn.style.cursor = 'pointer';
             } else {
                 mergeBtn.disabled = true;
-                mergeBtn.textContent = 'Upload files first';
+                if (templateProcessing || dataProcessing) {
+                    mergeBtn.textContent = 'Processing files...';
+                } else if (!templateUploaded && !dataUploaded) {
+                    mergeBtn.textContent = 'Upload files first';
+                } else if (!templateUploaded) {
+                    mergeBtn.textContent = 'Upload template first';
+                } else if (!dataUploaded) {
+                    mergeBtn.textContent = 'Upload data file first';
+                } else if (!formatSelected) {
+                    mergeBtn.textContent = 'Select output format';
+                } else {
+                    mergeBtn.textContent = 'Upload files first';
+                }
+                mergeBtn.style.opacity = '0.6';
+                mergeBtn.style.cursor = 'not-allowed';
             }
         }
-    }
-
-    // Format selection change
+    }    // Format selection change
     formatOptions.forEach(option => {
         option.addEventListener('change', updateMergeButton);
     });
