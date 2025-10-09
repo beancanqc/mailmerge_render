@@ -58,6 +58,7 @@ document.addEventListener('DOMContentLoaded', function () {
             })
             .catch(error => {
                 debugLog('Status check error:', error);
+                // Don't update status if there's an error
             });
     }
 
@@ -106,6 +107,17 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const endpoint = fileType === 'template' ? '/upload_template' : '/upload_data';
 
+        // Set processing state
+        if (fileType === 'template') {
+            templateProcessing = true;
+            templateUploaded = false;
+        } else {
+            dataProcessing = true;
+            dataUploaded = false;
+        }
+
+        updateMergeButton();
+
         // Show loading state
         dropZone.innerHTML = `
             <div class="drop-icon">⏳</div>
@@ -135,8 +147,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
                     if (fileType === 'template') {
                         templateUploaded = true;
+                        templateProcessing = false;
                     } else {
                         dataUploaded = true;
+                        dataProcessing = false;
                         // Show data preview if available
                         if (data.preview && data.total_rows) {
                             showDataPreview(data.preview, data.total_rows);
@@ -156,6 +170,17 @@ document.addEventListener('DOMContentLoaded', function () {
                 `;
                     dropZone.style.borderColor = '#e53e3e';
                     dropZone.style.backgroundColor = '#fed7d7';
+
+                    // Reset state on error
+                    if (fileType === 'template') {
+                        templateUploaded = false;
+                        templateProcessing = false;
+                    } else {
+                        dataUploaded = false;
+                        dataProcessing = false;
+                    }
+
+                    updateMergeButton();
                 }
             })
             .catch(error => {
@@ -167,6 +192,17 @@ document.addEventListener('DOMContentLoaded', function () {
             `;
                 dropZone.style.borderColor = '#e53e3e';
                 dropZone.style.backgroundColor = '#fed7d7';
+
+                // Reset state on error
+                if (fileType === 'template') {
+                    templateUploaded = false;
+                    templateProcessing = false;
+                } else {
+                    dataUploaded = false;
+                    dataProcessing = false;
+                }
+
+                updateMergeButton();
             });
     }
 
@@ -309,7 +345,6 @@ document.addEventListener('DOMContentLoaded', function () {
     setupDropZone(dataDrop, dataInput, 'data');
 
     // Initial setup
-    checkUploadStatus();
     updateMergeButton();
 
     debugLog('Mail merge interface initialized');
