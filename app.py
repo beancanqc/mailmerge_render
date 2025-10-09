@@ -1,17 +1,16 @@
 """
 Mail Merge SaaS - Main Application
-Flask web server for Render deployment with LibreOffice PDF conversion
+Flask web server for Render deployment - Word documents only
 """
 
 import os
 import tempfile
 import zipfile
-import subprocess
 import shutil
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, request, jsonify, send_file, render_template_string, send_from_directory
+from flask import Flask, request, jsonify, send_file
 from werkzeug.utils import secure_filename
 from docx import Document
 import openpyxl
@@ -31,42 +30,6 @@ ALLOWED_DATA_EXTENSIONS = {'xlsx'}
 
 def allowed_file(filename, allowed_extensions):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed_extensions
-
-def convert_docx_to_pdf(docx_path, output_dir):
-    """Convert DOCX to PDF using LibreOffice"""
-    try:
-        # Ensure output directory exists
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # Try different LibreOffice commands
-        commands = [
-            ['libreoffice', '--headless', '--convert-to', 'pdf', '--outdir', output_dir, docx_path],
-            ['soffice', '--headless', '--convert-to', 'pdf', '--outdir', output_dir, docx_path],
-            ['loffice', '--headless', '--convert-to', 'pdf', '--outdir', output_dir, docx_path]
-        ]
-        
-        for cmd in commands:
-            try:
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-                if result.returncode == 0:
-                    # Find the generated PDF
-                    docx_name = os.path.splitext(os.path.basename(docx_path))[0]
-                    pdf_path = os.path.join(output_dir, f"{docx_name}.pdf")
-                    if os.path.exists(pdf_path):
-                        return True, pdf_path
-                    else:
-                        # Sometimes LibreOffice changes the filename, so search for any PDF
-                        for file in os.listdir(output_dir):
-                            if file.endswith('.pdf'):
-                                return True, os.path.join(output_dir, file)
-                break  # If one command works, don't try others
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                continue
-        
-        return False, f"LibreOffice conversion failed. Error: {result.stderr if 'result' in locals() else 'LibreOffice not found'}"
-        
-    except Exception as e:
-        return False, f"PDF conversion error: {str(e)}"
 
 class MailMergeProcessor:
     def __init__(self):
@@ -132,24 +95,6 @@ class MailMergeProcessor:
             print(f"Error loading data: {str(e)}")
             return False
     
-    def find_merge_fields(self, doc: Document) -> List[str]:
-        """Find all merge fields in the document (format: {{field_name}})"""
-        merge_fields = set()
-        
-        # Search in paragraphs
-        for paragraph in doc.paragraphs:
-            fields = re.findall(r'\{\{(\w+)\}\}', paragraph.text)
-            merge_fields.update(fields)
-        
-        # Search in tables
-        for table in doc.tables:
-            for row in table.rows:
-                for cell in row.cells:
-                    fields = re.findall(r'\{\{(\w+)\}\}', cell.text)
-                    merge_fields.update(fields)
-        
-        return list(merge_fields)
-    
     def replace_merge_fields(self, doc: Document, data_row: Dict[str, Any]) -> Document:
         """Replace merge fields with actual data"""
         # Replace in paragraphs
@@ -176,23 +121,25 @@ class MailMergeProcessor:
             if not self.template_path or not self.data:
                 raise ValueError("Template and data must be loaded first")
             
-            # Create output document
-            merged_doc = Document()
+            # Create first document from template
+            merged_doc = Document(self.template_path)
             
-            for index, row_data in enumerate(self.data):
-                # Load fresh template for each record
-                template_doc = Document(self.template_path)
+            # Replace fields for first record
+            if self.data:
+                merged_doc = self.replace_merge_fields(merged_doc, self.data[0])
+            
+            # Add remaining records
+            for row_data in self.data[1:]:
+                # Add page break
+                merged_doc.add_page_break()
                 
-                # Replace merge fields
+                # Load template again for each record
+                template_doc = Document(self.template_path)
                 processed_doc = self.replace_merge_fields(template_doc, row_data)
                 
-                # Add content to merged document
+                # Append content
                 for element in processed_doc.element.body:
                     merged_doc.element.body.append(element)
-                
-                # Add page break between records (except for the last one)
-                if index < len(self.data) - 1:
-                    merged_doc.add_page_break()
             
             merged_doc.save(output_path)
             return True
@@ -230,66 +177,6 @@ class MailMergeProcessor:
             print(f"Error creating multiple Word files: {str(e)}")
             return False
     
-    def generate_single_pdf(self, output_path: str) -> bool:
-        """Generate a single PDF with all records"""
-        try:
-            # First create Word document
-            temp_word_path = output_path.replace('.pdf', '_temp.docx')
-            
-            if not self.generate_single_word(temp_word_path):
-                return False
-            
-            # Convert to PDF using LibreOffice
-            output_dir = os.path.dirname(output_path)
-            success, result = convert_docx_to_pdf(temp_word_path, output_dir)
-            
-            if success:
-                # Move the PDF to the desired location if needed
-                if result != output_path:
-                    shutil.move(result, output_path)
-                
-                # Clean up temporary file
-                os.remove(temp_word_path)
-                return True
-            else:
-                print(f"PDF conversion failed: {result}")
-                return False
-            
-        except Exception as e:
-            print(f"Error creating single PDF: {str(e)}")
-            return False
-    
-    def generate_multiple_pdf(self, output_dir: str) -> bool:
-        """Generate multiple PDFs (one per record)"""
-        try:
-            # First create Word documents
-            word_dir = os.path.join(output_dir, 'temp_word')
-            
-            if not self.generate_multiple_word(word_dir):
-                return False
-            
-            # Convert each Word doc to PDF
-            os.makedirs(output_dir, exist_ok=True)
-            
-            for filename in os.listdir(word_dir):
-                if filename.endswith('.docx'):
-                    word_path = os.path.join(word_dir, filename)
-                    
-                    # Convert to PDF
-                    success, pdf_path = convert_docx_to_pdf(word_path, output_dir)
-                    if not success:
-                        print(f"Failed to convert {filename} to PDF: {pdf_path}")
-                        return False
-            
-            # Clean up temporary Word files
-            shutil.rmtree(word_dir)
-            
-            return True
-            
-        except Exception as e:
-            print(f"Error creating multiple PDFs: {str(e)}")
-            return False
-    
     def process_merge(self, output_format: str, output_path: str) -> bool:
         """Main processing function"""
         try:
@@ -297,16 +184,12 @@ class MailMergeProcessor:
                 raise ValueError("Both template and data files must be loaded")
             
             # Process based on output format
-            if output_format == "single-pdf":
-                return self.generate_single_pdf(output_path)
-            elif output_format == "multiple-pdf":
-                return self.generate_multiple_pdf(output_path)
-            elif output_format == "single-word":
+            if output_format == "single-word":
                 return self.generate_single_word(output_path)
             elif output_format == "multiple-word":
                 return self.generate_multiple_word(output_path)
             else:
-                raise ValueError(f"Unknown output format: {output_format}")
+                raise ValueError(f"Unsupported output format: {output_format}")
                 
         except Exception as e:
             print(f"Error processing mail merge: {str(e)}")
@@ -442,10 +325,14 @@ def upload_data():
 
 @app.route('/process_merge', methods=['POST'])
 def process_merge():
-    """Process the mail merge"""
+    """Process the mail merge - Word documents only"""
     try:
         data = request.get_json()
-        output_format = data.get('format', 'single-pdf')
+        output_format = data.get('format', 'single-word')
+        
+        # Only allow Word formats
+        if 'pdf' in output_format:
+            return jsonify({'error': 'PDF conversion not available on free hosting. Please use Word format - you can convert to PDF locally.'}), 400
         
         if not processor.template_path or not processor.data:
             return jsonify({'error': 'Please upload both template and data files first'}), 400
@@ -453,23 +340,22 @@ def process_merge():
         # Generate unique filename
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        if output_format in ['single-pdf', 'single-word']:
+        if output_format == 'single-word':
             # Single file output
-            extension = '.pdf' if 'pdf' in output_format else '.docx'
-            output_filename = f"mailmerge_result_{timestamp}{extension}"
+            output_filename = f"mailmerge_result_{timestamp}.docx"
             output_path = os.path.join(OUTPUT_FOLDER, output_filename)
             
             if processor.process_merge(output_format, output_path):
                 return jsonify({
                     'success': True,
-                    'message': 'Mail merge completed successfully',
+                    'message': 'Mail merge completed successfully! Download the Word file and convert to PDF if needed.',
                     'download_url': f'/download/{output_filename}',
                     'filename': output_filename
                 })
             else:
                 return jsonify({'error': 'Failed to process mail merge'}), 500
                 
-        else:
+        else:  # multiple-word
             # Multiple files - create ZIP
             output_dir = os.path.join(OUTPUT_FOLDER, f"mailmerge_{timestamp}")
             zip_filename = f"mailmerge_results_{timestamp}.zip"
@@ -489,7 +375,7 @@ def process_merge():
                 
                 return jsonify({
                     'success': True,
-                    'message': 'Mail merge completed successfully',
+                    'message': f'Mail merge completed! Generated {len(processor.data)} Word documents. Convert to PDF locally if needed.',
                     'download_url': f'/download/{zip_filename}',
                     'filename': zip_filename
                 })
@@ -514,7 +400,7 @@ def download_file(filename):
 @app.route('/health')
 def health_check():
     """Health check endpoint"""
-    return jsonify({'status': 'healthy', 'service': 'Mail Merge SaaS'})
+    return jsonify({'status': 'healthy', 'service': 'Mail Merge SaaS - Word Only'})
 
 if __name__ == '__main__':
     # Development server
