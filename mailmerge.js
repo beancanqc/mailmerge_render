@@ -287,7 +287,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
 
             if (!templateUploaded || !dataUploaded) {
-                alert('Please upload both template and data files');
+                alert('Files are still being processed. Please wait a few seconds and try again.');
                 return;
             }
 
