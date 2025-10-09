@@ -227,7 +227,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 mergeBtn.style.cursor = 'not-allowed';
             }
         }
-    }    // Format selection change
+    }
+
+    // Format selection change
     formatOptions.forEach(option => {
         option.addEventListener('change', updateMergeButton);
     });
