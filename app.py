@@ -49,6 +49,7 @@ class MailMergeProcessor:
             # Test if file can be opened
             doc = Document(template_path)
             self.template_path = template_path
+            print(f"Template loaded successfully: {template_path}")
             return True
             
         except Exception as e:
@@ -89,6 +90,7 @@ class MailMergeProcessor:
             
             self.data_path = data_path
             workbook.close()
+            print(f"Data loaded successfully: {len(self.data)} records from {data_path}")
             return True
             
         except Exception as e:
@@ -251,20 +253,28 @@ processor = MailMergeProcessor()
 def upload_template():
     """Handle template file upload"""
     try:
+        print("Template upload request received")
+        
         if 'file' not in request.files:
-            return jsonify({'error': 'No file selected'}), 400
+            print("No file in request")
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
         
         file = request.files['file']
         if file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
+            print("Empty filename")
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
+        
+        print(f"Template file: {file.filename}")
         
         if not allowed_file(file.filename, ALLOWED_TEMPLATE_EXTENSIONS):
-            return jsonify({'error': 'Invalid file type. Please upload a .docx file'}), 400
+            print(f"Invalid file type: {file.filename}")
+            return jsonify({'success': False, 'error': 'Invalid file type. Please upload a .docx file'}), 400
         
         # Save file
         filename = secure_filename(file.filename)
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
+        print(f"Template saved to: {filepath}")
         
         # Load template
         if processor.load_template(filepath):
@@ -275,30 +285,40 @@ def upload_template():
                 'filename': file.filename
             })
         else:
-            os.remove(filepath)
-            return jsonify({'error': 'Invalid template file'}), 400
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            return jsonify({'success': False, 'error': 'Invalid template file'}), 400
             
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"Template upload error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/upload_data', methods=['POST'])
 def upload_data():
     """Handle data file upload"""
     try:
+        print("Data upload request received")
+        
         if 'file' not in request.files:
-            return jsonify({'error': 'No file selected'}), 400
+            print("No file in request")
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
         
         file = request.files['file']
         if file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
+            print("Empty filename")
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
+        
+        print(f"Data file: {file.filename}")
         
         if not allowed_file(file.filename, ALLOWED_DATA_EXTENSIONS):
-            return jsonify({'error': 'Invalid file type. Please upload an Excel file (.xlsx)'}), 400
+            print(f"Invalid file type: {file.filename}")
+            return jsonify({'success': False, 'error': 'Invalid file type. Please upload an Excel file (.xlsx)'}), 400
         
         # Save file
         filename = secure_filename(file.filename)
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
+        print(f"Data saved to: {filepath}")
         
         # Load data
         if processor.load_data(filepath):
@@ -317,9 +337,24 @@ def upload_data():
                 'total_rows': total_rows
             })
         else:
-            os.remove(filepath)
-            return jsonify({'error': 'Invalid data file'}), 400
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            return jsonify({'success': False, 'error': 'Invalid data file'}), 400
             
+    except Exception as e:
+        print(f"Data upload error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/check_status', methods=['GET'])
+def check_status():
+    """Check current upload status"""
+    try:
+        return jsonify({
+            'template_loaded': processor.template_path is not None,
+            'data_loaded': processor.data_path is not None and len(processor.data) > 0,
+            'template_path': processor.template_path,
+            'data_records': len(processor.data) if processor.data else 0
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -327,15 +362,23 @@ def upload_data():
 def process_merge():
     """Process the mail merge - Word documents only"""
     try:
+        print("Process merge request received")
+        
         data = request.get_json()
         output_format = data.get('format', 'single-word')
         
+        print(f"Output format: {output_format}")
+        print(f"Template loaded: {processor.template_path is not None}")
+        print(f"Data loaded: {len(processor.data) if processor.data else 0} records")
+        
         # Only allow Word formats
         if 'pdf' in output_format:
-            return jsonify({'error': 'PDF conversion not available on free hosting. Please use Word format - you can convert to PDF locally.'}), 400
+            return jsonify({'success': False, 'error': 'PDF conversion not available on free hosting. Please use Word format - you can convert to PDF locally.'}), 400
         
         if not processor.template_path or not processor.data:
-            return jsonify({'error': 'Please upload both template and data files first'}), 400
+            error_msg = f"Missing files - Template: {processor.template_path is not None}, Data: {len(processor.data) if processor.data else 0} records"
+            print(error_msg)
+            return jsonify({'success': False, 'error': 'Please upload both template and data files first'}), 400
         
         # Generate unique filename
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -353,7 +396,7 @@ def process_merge():
                     'filename': output_filename
                 })
             else:
-                return jsonify({'error': 'Failed to process mail merge'}), 500
+                return jsonify({'success': False, 'error': 'Failed to process mail merge'}), 500
                 
         else:  # multiple-word
             # Multiple files - create ZIP
@@ -380,10 +423,11 @@ def process_merge():
                     'filename': zip_filename
                 })
             else:
-                return jsonify({'error': 'Failed to process mail merge'}), 500
+                return jsonify({'success': False, 'error': 'Failed to process mail merge'}), 500
                 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"Process merge error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/download/<filename>')
 def download_file(filename):

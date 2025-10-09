@@ -12,24 +12,60 @@ document.addEventListener('DOMContentLoaded', function () {
     let templateUploaded = false;
     let dataUploaded = false;
 
+    // Debug function
+    function debugLog(message) {
+        console.log('[MailMerge]', message);
+    }
+
+    // Check if elements exist
+    if (!templateDrop || !dataDrop) {
+        console.error('Drop zones not found in DOM');
+        return;
+    }
+
     // Disable PDF options since we only support Word
     const pdfOptions = document.querySelectorAll('input[value*="pdf"]');
     pdfOptions.forEach(option => {
         option.disabled = true;
         const label = option.closest('.format-option');
-        label.style.opacity = '0.5';
-        label.style.cursor = 'not-allowed';
-        const text = label.querySelector('.format-text');
-        if (text) {
-            text.innerHTML += ' <small>(Not available)</small>';
+        if (label) {
+            label.style.opacity = '0.5';
+            label.style.cursor = 'not-allowed';
+            const text = label.querySelector('.format-text');
+            if (text) {
+                text.innerHTML += ' <small>(Not available)</small>';
+            }
         }
     });
 
     // Set default to single-word
-    document.getElementById('single-word').checked = true;
+    const singleWordOption = document.getElementById('single-word');
+    if (singleWordOption) {
+        singleWordOption.checked = true;
+    }
+
+    // Check status on page load
+    function checkUploadStatus() {
+        fetch('/check_status')
+            .then(response => response.json())
+            .then(data => {
+                debugLog('Current status:', data);
+                templateUploaded = data.template_loaded;
+                dataUploaded = data.data_loaded;
+                updateMergeButton();
+            })
+            .catch(error => {
+                debugLog('Status check error:', error);
+            });
+    }
 
     // File drop functionality
     function setupDropZone(dropZone, fileInput, fileType) {
+        if (!dropZone || !fileInput) {
+            console.error(`Missing elements for ${fileType} drop zone`);
+            return;
+        }
+
         dropZone.addEventListener('click', () => fileInput.click());
 
         dropZone.addEventListener('dragover', (e) => {
@@ -61,6 +97,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Handle file upload
     function handleFileUpload(file, fileType, dropZone) {
+        debugLog(`Uploading ${fileType} file:`, file.name);
+
         const formData = new FormData();
         formData.append('file', file);
 
@@ -69,16 +107,21 @@ document.addEventListener('DOMContentLoaded', function () {
         // Show loading state
         dropZone.innerHTML = `
             <div class="drop-icon">⏳</div>
-            <p class="drop-text">Uploading...</p>
+            <p class="drop-text">Uploading ${file.name}...</p>
         `;
 
         fetch(endpoint, {
             method: 'POST',
             body: formData
         })
-            .then(response => response.json())
+            .then(response => {
+                debugLog(`Upload response status: ${response.status}`);
+                return response.json();
+            })
             .then(data => {
-                if (data.success || !data.error) {
+                debugLog(`Upload response for ${fileType}:`, data);
+
+                if (data.success !== false && !data.error) {
                     // Success
                     dropZone.innerHTML = `
                     <div class="drop-icon">✅</div>
@@ -101,17 +144,20 @@ document.addEventListener('DOMContentLoaded', function () {
                     updateMergeButton();
                 } else {
                     // Error
+                    const errorMsg = data.error || 'Unknown error';
+                    debugLog(`Upload error for ${fileType}:`, errorMsg);
+
                     dropZone.innerHTML = `
                     <div class="drop-icon">❌</div>
                     <p class="drop-text">Upload failed</p>
-                    <p class="drop-subtext">${data.error || 'Unknown error'}</p>
+                    <p class="drop-subtext">${errorMsg}</p>
                 `;
                     dropZone.style.borderColor = '#e53e3e';
                     dropZone.style.backgroundColor = '#fed7d7';
                 }
             })
             .catch(error => {
-                console.error('Upload error:', error);
+                debugLog(`Network error for ${fileType}:`, error);
                 dropZone.innerHTML = `
                 <div class="drop-icon">❌</div>
                 <p class="drop-text">Upload failed</p>
@@ -144,10 +190,20 @@ document.addEventListener('DOMContentLoaded', function () {
     function updateMergeButton() {
         const formatSelected = document.querySelector('input[name="output-format"]:checked');
 
-        if (templateUploaded && dataUploaded && formatSelected) {
-            mergeBtn.disabled = false;
-        } else {
-            mergeBtn.disabled = true;
+        debugLog('Update button state:', {
+            templateUploaded,
+            dataUploaded,
+            formatSelected: formatSelected ? formatSelected.value : 'none'
+        });
+
+        if (mergeBtn) {
+            if (templateUploaded && dataUploaded && formatSelected) {
+                mergeBtn.disabled = false;
+                mergeBtn.textContent = 'Start Mail Merge';
+            } else {
+                mergeBtn.disabled = true;
+                mergeBtn.textContent = 'Upload files first';
+            }
         }
     }
 
@@ -157,67 +213,82 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     // Merge button click
-    mergeBtn.addEventListener('click', function () {
-        const selectedFormat = document.querySelector('input[name="output-format"]:checked');
+    if (mergeBtn) {
+        mergeBtn.addEventListener('click', function () {
+            const selectedFormat = document.querySelector('input[name="output-format"]:checked');
 
-        if (!selectedFormat) {
-            alert('Please select an output format');
-            return;
-        }
-
-        if (!templateUploaded || !dataUploaded) {
-            alert('Please upload both template and data files');
-            return;
-        }
-
-        // Disable button and show processing
-        mergeBtn.disabled = true;
-        mergeBtn.textContent = 'Processing...';
-
-        // Send merge request
-        fetch('/process_merge', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                format: selectedFormat.value
-            })
-        })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    // Success - trigger download
-                    const link = document.createElement('a');
-                    link.href = data.download_url;
-                    link.download = data.filename;
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-
-                    // Show success message
-                    alert(data.message);
-                } else {
-                    // Error
-                    alert(data.error || 'Processing failed');
-                }
-            })
-            .catch(error => {
-                console.error('Processing error:', error);
-                alert('Network error during processing');
-            })
-            .finally(() => {
-                // Re-enable button
-                mergeBtn.disabled = false;
-                mergeBtn.textContent = 'Start Mail Merge';
-                updateMergeButton(); // Update based on current state
+            debugLog('Merge button clicked:', {
+                templateUploaded,
+                dataUploaded,
+                selectedFormat: selectedFormat ? selectedFormat.value : 'none'
             });
-    });
+
+            if (!selectedFormat) {
+                alert('Please select an output format');
+                return;
+            }
+
+            if (!templateUploaded || !dataUploaded) {
+                alert('Please upload both template and data files');
+                return;
+            }
+
+            // Disable button and show processing
+            mergeBtn.disabled = true;
+            mergeBtn.textContent = 'Processing...';
+
+            // Send merge request
+            fetch('/process_merge', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    format: selectedFormat.value
+                })
+            })
+                .then(response => {
+                    debugLog('Process response status:', response.status);
+                    return response.json();
+                })
+                .then(data => {
+                    debugLog('Process response:', data);
+
+                    if (data.success) {
+                        // Success - trigger download
+                        const link = document.createElement('a');
+                        link.href = data.download_url;
+                        link.download = data.filename;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+
+                        // Show success message
+                        alert(data.message);
+                    } else {
+                        // Error
+                        alert(data.error || 'Processing failed');
+                    }
+                })
+                .catch(error => {
+                    debugLog('Processing error:', error);
+                    alert('Network error during processing');
+                })
+                .finally(() => {
+                    // Re-enable button
+                    mergeBtn.disabled = false;
+                    updateMergeButton(); // Update based on current state
+                });
+        });
+    }
 
     // Setup drop zones
     setupDropZone(templateDrop, templateInput, 'template');
     setupDropZone(dataDrop, dataInput, 'data');
 
-    // Initial button state
+    // Initial setup
+    checkUploadStatus();
     updateMergeButton();
+
+    debugLog('Mail merge interface initialized');
 });
