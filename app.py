@@ -432,22 +432,71 @@ class MailMergeProcessor:
             return False
     
     def _convert_docx_to_pdf(self, docx_path: str, pdf_path: str) -> bool:
-        """Convert Word document to PDF using Word's native conversion engine"""
+        """Convert Word document to PDF using available conversion method"""
         try:
-            print(f"Converting Word document to PDF using Word's native engine...")
+            print(f"Converting Word document to PDF...")
             print(f"Input: {docx_path}")
             print(f"Output: {pdf_path}")
             
-            # Use docx2pdf for perfect Word-native conversion
-            from docx2pdf import convert
-            convert(docx_path, pdf_path)
+            # Try Word's native conversion first (Windows/macOS)
+            try:
+                from docx2pdf import convert
+                convert(docx_path, pdf_path)
+                print(f"Successfully converted to PDF using Word: {pdf_path}")
+                return True
+            except Exception as word_error:
+                print(f"Word conversion failed: {word_error}")
+                print("Trying LibreOffice conversion...")
             
-            print(f"Successfully converted to PDF: {pdf_path}")
-            return True
+            # Fallback to LibreOffice (Linux/Cloud servers)
+            import subprocess
+            import platform
+            
+            try:
+                # Get the directory for output
+                output_dir = os.path.dirname(pdf_path)
+                
+                # LibreOffice command
+                cmd = [
+                    'libreoffice', '--headless', '--convert-to', 'pdf',
+                    '--outdir', output_dir, docx_path
+                ]
+                
+                print(f"Running LibreOffice command: {' '.join(cmd)}")
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                
+                if result.returncode == 0:
+                    # LibreOffice creates PDF with same name as input file
+                    expected_pdf = os.path.join(output_dir, os.path.basename(docx_path).replace('.docx', '.pdf'))
+                    
+                    if os.path.exists(expected_pdf):
+                        # Move to desired location if different
+                        if expected_pdf != pdf_path:
+                            os.rename(expected_pdf, pdf_path)
+                        
+                        print(f"Successfully converted to PDF using LibreOffice: {pdf_path}")
+                        return True
+                    else:
+                        print(f"LibreOffice conversion succeeded but PDF not found at: {expected_pdf}")
+                        return False
+                else:
+                    print(f"LibreOffice conversion failed. Return code: {result.returncode}")
+                    print(f"stdout: {result.stdout}")
+                    print(f"stderr: {result.stderr}")
+                    return False
+                    
+            except subprocess.TimeoutExpired:
+                print("LibreOffice conversion timed out")
+                return False
+            except FileNotFoundError:
+                print("LibreOffice not found. Please install LibreOffice.")
+                return False
+            except Exception as libre_error:
+                print(f"LibreOffice conversion error: {libre_error}")
+                return False
             
         except Exception as e:
             print(f"Error converting Word document to PDF: {str(e)}")
-            print("Make sure Microsoft Word is installed on this system")
             import traceback
             traceback.print_exc()
             return False
