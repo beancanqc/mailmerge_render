@@ -254,125 +254,204 @@ class MailMergeProcessor:
 
     def replace_merge_fields_advanced(self, paragraph, data_row: Dict[str, Any]):
         """Advanced merge field replacement that preserves both Word styles and character formatting"""
-        full_text = paragraph.text
-        
-        # Find all merge fields
-        merge_fields = re.finditer(r'\{\{(\w+)\}\}', full_text)
-        merge_list = list(merge_fields)
-        
-        if not merge_list:
-            return
-        
-        # PRESERVE the original paragraph style - this is crucial!
-        original_style = paragraph.style
-        original_alignment = paragraph.alignment
-        
-        # Store all runs with their formatting before we modify anything
-        original_runs = []
-        for run in paragraph.runs:
-            original_runs.append({
-                'text': run.text,
-                'bold': run.bold,
-                'italic': run.italic,
-                'underline': run.underline,
-                'font_name': run.font.name,
-                'font_size': run.font.size,
-                'font_color': run.font.color.rgb if run.font.color.rgb else None
-            })
-        
-        # Build character position to formatting map
-        char_to_formatting = {}
-        char_pos = 0
-        for run_info in original_runs:
-            run_text = run_info['text']
-            for i in range(len(run_text)):
-                char_to_formatting[char_pos + i] = run_info
-            char_pos += len(run_text)
-        
-        # Process merge fields in reverse order to maintain positions
-        new_text = full_text
-        formatting_changes = []  # Track where replacements happen
-        
-        for match in reversed(merge_list):
-            field_name = match.group(1)
-            replacement_text = str(data_row.get(field_name, ""))
-            start_pos = match.start()
-            end_pos = match.end()
+        try:
+            full_text = paragraph.text
             
-            # Store the formatting that should apply to the replacement
-            if start_pos in char_to_formatting:
-                replacement_formatting = char_to_formatting[start_pos]
-            else:
-                # Find the closest formatting
-                replacement_formatting = None
-                for pos in range(start_pos, -1, -1):
-                    if pos in char_to_formatting:
-                        replacement_formatting = char_to_formatting[pos]
-                        break
+            # Find all merge fields
+            merge_fields = re.finditer(r'\{\{(\w+)\}\}', full_text)
+            merge_list = list(merge_fields)
             
-            formatting_changes.append({
-                'start': start_pos,
-                'end': start_pos + len(replacement_text),
-                'formatting': replacement_formatting,
-                'text': replacement_text
-            })
+            if not merge_list:
+                return
             
-            # Replace in text
-            new_text = new_text[:start_pos] + replacement_text + new_text[end_pos:]
-        
-        # Clear the paragraph but keep its style
-        paragraph.clear()
-        
-        # Rebuild the paragraph with preserved formatting
-        if new_text.strip():
-            current_pos = 0
+            # PRESERVE the original paragraph style - this is crucial!
+            original_style = paragraph.style
+            original_alignment = paragraph.alignment
             
-            # Sort formatting changes by position
-            formatting_changes.sort(key=lambda x: x['start'])
+            # Try the advanced formatting preservation approach
+            try:
+                # Store all runs with their formatting before we modify anything
+                original_runs = []
+                for run in paragraph.runs:
+                    try:
+                        original_runs.append({
+                            'text': run.text,
+                            'bold': run.bold,
+                            'italic': run.italic,
+                            'underline': run.underline,
+                            'font_name': run.font.name,
+                            'font_size': run.font.size,
+                            'font_color': run.font.color.rgb if run.font.color.rgb else None
+                        })
+                    except Exception as e:
+                        # If we can't read formatting, store basic info
+                        original_runs.append({
+                            'text': run.text,
+                            'bold': False,
+                            'italic': False,
+                            'underline': False,
+                            'font_name': None,
+                            'font_size': None,
+                            'font_color': None
+                        })
+                
+                # Build character position to formatting map
+                char_to_formatting = {}
+                char_pos = 0
+                for run_info in original_runs:
+                    run_text = run_info['text']
+                    for i in range(len(run_text)):
+                        char_to_formatting[char_pos + i] = run_info
+                    char_pos += len(run_text)
+                
+                # Process merge fields and rebuild with formatting
+                success = self._rebuild_paragraph_with_formatting(paragraph, full_text, merge_list, data_row, char_to_formatting)
+                
+                if success:
+                    # Restore paragraph-level formatting (Word styles)
+                    paragraph.style = original_style
+                    if original_alignment is not None:
+                        paragraph.alignment = original_alignment
+                    return
+                    
+            except Exception as e:
+                print(f"Advanced formatting failed, using simple approach: {e}")
             
-            for change in formatting_changes:
-                # Add text before this replacement (if any)
-                if change['start'] > current_pos:
-                    before_text = new_text[current_pos:change['start']]
-                    if before_text:
-                        # Find original formatting for this position
+            # Fallback to simple approach if advanced formatting fails
+            print("Using simple merge approach...")
+            self._simple_merge_fields(paragraph, full_text, merge_list, data_row, original_style, original_alignment)
+            
+        except Exception as e:
+            print(f"Error in replace_merge_fields_advanced: {e}")
+            # Ultimate fallback - just do basic text replacement
+            try:
+                full_text = paragraph.text
+                for match in reversed(list(re.finditer(r'\{\{(\w+)\}\}', full_text))):
+                    field_name = match.group(1)
+                    replacement_text = str(data_row.get(field_name, ""))
+                    full_text = full_text[:match.start()] + replacement_text + full_text[match.end():]
+                
+                paragraph.clear()
+                if full_text.strip():
+                    paragraph.add_run(full_text)
+            except Exception as final_error:
+                print(f"Even basic replacement failed: {final_error}")
+    
+    def _simple_merge_fields(self, paragraph, full_text, merge_list, data_row, original_style, original_alignment):
+        """Simple merge field replacement that preserves paragraph styles"""
+        try:
+            # Simple replacement that maintains style integrity
+            new_text = full_text
+            for match in reversed(merge_list):  # Process in reverse to maintain positions
+                field_name = match.group(1)
+                replacement_text = str(data_row.get(field_name, ""))
+                new_text = new_text[:match.start()] + replacement_text + new_text[match.end():]
+            
+            # Clear the paragraph but keep its style
+            paragraph.clear()
+            
+            # Add the new text as a single run to maintain style integrity
+            if new_text.strip():
+                run = paragraph.add_run(new_text)
+                # The paragraph style should automatically apply to the run
+                
+            # Restore paragraph-level formatting
+            paragraph.style = original_style
+            if original_alignment is not None:
+                paragraph.alignment = original_alignment
+                
+        except Exception as e:
+            print(f"Simple merge failed: {e}")
+            raise
+    
+    def _rebuild_paragraph_with_formatting(self, paragraph, full_text, merge_list, data_row, char_to_formatting):
+        """Rebuild paragraph with detailed formatting preservation"""
+        try:
+            # Process merge fields in reverse order to maintain positions
+            new_text = full_text
+            formatting_changes = []  # Track where replacements happen
+            
+            for match in reversed(merge_list):
+                field_name = match.group(1)
+                replacement_text = str(data_row.get(field_name, ""))
+                start_pos = match.start()
+                end_pos = match.end()
+                
+                # Store the formatting that should apply to the replacement
+                if start_pos in char_to_formatting:
+                    replacement_formatting = char_to_formatting[start_pos]
+                else:
+                    # Find the closest formatting
+                    replacement_formatting = None
+                    for pos in range(start_pos, -1, -1):
+                        if pos in char_to_formatting:
+                            replacement_formatting = char_to_formatting[pos]
+                            break
+                
+                formatting_changes.append({
+                    'start': start_pos,
+                    'end': start_pos + len(replacement_text),
+                    'formatting': replacement_formatting,
+                    'text': replacement_text
+                })
+                
+                # Replace in text
+                new_text = new_text[:start_pos] + replacement_text + new_text[end_pos:]
+            
+            # Clear the paragraph
+            paragraph.clear()
+            
+            # Rebuild the paragraph with preserved formatting
+            if new_text.strip():
+                current_pos = 0
+                
+                # Sort formatting changes by position
+                formatting_changes.sort(key=lambda x: x['start'])
+                
+                for change in formatting_changes:
+                    # Add text before this replacement (if any)
+                    if change['start'] > current_pos:
+                        before_text = new_text[current_pos:change['start']]
+                        if before_text:
+                            # Find original formatting for this position
+                            orig_formatting = None
+                            for pos in range(current_pos, change['start']):
+                                if pos in char_to_formatting:
+                                    orig_formatting = char_to_formatting[pos]
+                                    break
+                            
+                            run = paragraph.add_run(before_text)
+                            if orig_formatting:
+                                self._apply_preserved_formatting(run, orig_formatting)
+                    
+                    # Add the replacement text with its formatting
+                    if change['text']:
+                        run = paragraph.add_run(change['text'])
+                        if change['formatting']:
+                            self._apply_preserved_formatting(run, change['formatting'])
+                    
+                    current_pos = change['end']
+                
+                # Add any remaining text
+                if current_pos < len(new_text):
+                    remaining_text = new_text[current_pos:]
+                    if remaining_text:
+                        # Find formatting for remaining text
                         orig_formatting = None
-                        for pos in range(current_pos, change['start']):
+                        for pos in range(current_pos, len(full_text)):
                             if pos in char_to_formatting:
                                 orig_formatting = char_to_formatting[pos]
                                 break
                         
-                        run = paragraph.add_run(before_text)
+                        run = paragraph.add_run(remaining_text)
                         if orig_formatting:
                             self._apply_preserved_formatting(run, orig_formatting)
-                
-                # Add the replacement text with its formatting
-                if change['text']:
-                    run = paragraph.add_run(change['text'])
-                    if change['formatting']:
-                        self._apply_preserved_formatting(run, change['formatting'])
-                
-                current_pos = change['end']
             
-            # Add any remaining text
-            if current_pos < len(new_text):
-                remaining_text = new_text[current_pos:]
-                if remaining_text:
-                    # Find formatting for remaining text
-                    orig_formatting = None
-                    for pos in range(current_pos, len(full_text)):
-                        if pos in char_to_formatting:
-                            orig_formatting = char_to_formatting[pos]
-                            break
-                    
-                    run = paragraph.add_run(remaining_text)
-                    if orig_formatting:
-                        self._apply_preserved_formatting(run, orig_formatting)
-        
-        # Restore paragraph-level formatting (Word styles)
-        paragraph.style = original_style
-        if original_alignment is not None:
-            paragraph.alignment = original_alignment
+            return True
+            
+        except Exception as e:
+            print(f"Detailed formatting rebuild failed: {e}")
+            return False
     
     def _apply_preserved_formatting(self, run, formatting_info):
         """Apply preserved formatting to a run"""
@@ -1150,8 +1229,38 @@ def health_check():
     return jsonify({'status': 'healthy', 'service': 'Mail Merge SaaS - Word & PDF Support'})
 
 if __name__ == '__main__':
-    # Check PDF conversion capabilities at startup
+    # Diagnostic information for debugging Render deployment
+    print("\n" + "="*50)
+    print("Mail Merge SaaS - Startup Diagnostics")
+    print("="*50)
+    
+    # Check PDF conversion capabilities
     check_pdf_conversion_capabilities()
+    
+    # Additional environment info for Render debugging
+    import platform
+    import sys
+    print(f"Python version: {sys.version}")
+    print(f"Platform: {platform.platform()}")
+    print(f"Architecture: {platform.architecture()}")
+    
+    # Check critical imports
+    critical_imports = [
+        ('flask', 'Flask web framework'),
+        ('docx', 'python-docx for Word processing'),
+        ('openpyxl', 'Excel file processing'),
+        ('reportlab', 'PDF generation fallback')
+    ]
+    
+    print("\nCritical imports check:")
+    for module, description in critical_imports:
+        try:
+            __import__(module)
+            print(f"OK {module}: {description}")
+        except ImportError as e:
+            print(f"FAILED {module}: {e}")
+    
+    print("="*50)
     
     # Development server
     port = int(os.environ.get('PORT', 5000))
