@@ -36,6 +36,33 @@ ALLOWED_DATA_EXTENSIONS = {'xlsx'}
 def allowed_file(filename, allowed_extensions):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed_extensions
 
+def check_pdf_conversion_capabilities():
+    """Check what PDF conversion methods are available"""
+    capabilities = []
+    
+    # Check for docx2pdf (Word)
+    try:
+        import docx2pdf
+        capabilities.append("Word native (docx2pdf)")
+    except ImportError:
+        pass
+    
+    # Check for LibreOffice
+    try:
+        import subprocess
+        result = subprocess.run(['libreoffice', '--version'], 
+                              capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            capabilities.append("LibreOffice")
+    except:
+        pass
+    
+    # ReportLab is always available
+    capabilities.append("ReportLab (basic)")
+    
+    print(f"PDF conversion capabilities: {', '.join(capabilities)}")
+    return capabilities
+
 class MailMergeProcessor:
     def __init__(self, session_id=None):
         self.session_id = session_id or str(uuid.uuid4())
@@ -489,16 +516,51 @@ class MailMergeProcessor:
                 print("LibreOffice conversion timed out")
                 return False
             except FileNotFoundError:
-                print("LibreOffice not found. Please install LibreOffice.")
-                return False
+                print("LibreOffice not found. Trying basic PDF generation...")
+                return self._generate_basic_pdf(docx_path, pdf_path)
             except Exception as libre_error:
                 print(f"LibreOffice conversion error: {libre_error}")
-                return False
+                print("Trying basic PDF generation...")
+                return self._generate_basic_pdf(docx_path, pdf_path)
             
         except Exception as e:
             print(f"Error converting Word document to PDF: {str(e)}")
             import traceback
             traceback.print_exc()
+            return False
+    
+    def _generate_basic_pdf(self, docx_path: str, pdf_path: str) -> bool:
+        """Basic PDF generation as final fallback using ReportLab"""
+        try:
+            print("Using basic PDF generation (ReportLab) as fallback...")
+            from reportlab.lib.pagesizes import letter
+            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+            from reportlab.lib.styles import getSampleStyleSheet
+            
+            # Load the Word document
+            doc = Document(docx_path)
+            
+            # Create PDF document
+            pdf_doc = SimpleDocTemplate(pdf_path, pagesize=letter)
+            styles = getSampleStyleSheet()
+            story = []
+            
+            # Convert paragraphs to simple text
+            for paragraph in doc.paragraphs:
+                if paragraph.text.strip():
+                    # Simple text conversion - won't preserve all formatting but works
+                    text = paragraph.text.strip()
+                    para = Paragraph(text, styles['Normal'])
+                    story.append(para)
+                    story.append(Spacer(1, 6))
+            
+            # Build PDF
+            pdf_doc.build(story)
+            print(f"Basic PDF generated successfully: {pdf_path}")
+            return True
+            
+        except Exception as e:
+            print(f"Basic PDF generation failed: {str(e)}")
             return False
     
     def process_merge(self, output_format: str, output_path: str) -> bool:
@@ -805,6 +867,9 @@ def health_check():
     return jsonify({'status': 'healthy', 'service': 'Mail Merge SaaS - Word & PDF Support'})
 
 if __name__ == '__main__':
+    # Check PDF conversion capabilities at startup
+    check_pdf_conversion_capabilities()
+    
     # Development server
     port = int(os.environ.get('PORT', 5000))
     app.run(debug=False, host='0.0.0.0', port=port)
