@@ -40,25 +40,61 @@ def check_pdf_conversion_capabilities():
     """Check what PDF conversion methods are available"""
     capabilities = []
     
+    # Check operating system
+    import platform
+    print(f"Operating System: {platform.system()}")
+    
     # Check for docx2pdf (Word)
     try:
         import docx2pdf
         capabilities.append("Word native (docx2pdf)")
+        print("Word native conversion available")
     except ImportError:
-        pass
+        print("Word native conversion not available")
     
     # Check for LibreOffice
     try:
         import subprocess
-        result = subprocess.run(['libreoffice', '--version'], 
-                              capture_output=True, text=True, timeout=5)
-        if result.returncode == 0:
-            capabilities.append("LibreOffice")
+        
+        if platform.system() == "Windows":
+            # Try common Windows LibreOffice paths
+            libreoffice_paths = [
+                r"C:\Program Files\LibreOffice\program\soffice.exe",
+                r"C:\Program Files (x86)\LibreOffice\program\soffice.exe", 
+                "soffice.exe",
+                "libreoffice"
+            ]
+            
+            libre_found = False
+            for path in libreoffice_paths:
+                try:
+                    result = subprocess.run([path, '--version'], 
+                                          capture_output=True, text=True, timeout=5)
+                    if result.returncode == 0:
+                        capabilities.append("LibreOffice")
+                        print(f"LibreOffice available at: {path}")
+                        libre_found = True
+                        break
+                except:
+                    continue
+                    
+            if not libre_found:
+                print("LibreOffice not found on Windows")
+        else:
+            # Linux/macOS
+            result = subprocess.run(['libreoffice', '--version'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                capabilities.append("LibreOffice")
+                print("LibreOffice available")
+            else:
+                print("LibreOffice not working")
     except:
-        pass
+        print("LibreOffice not available")
     
     # ReportLab is always available
     capabilities.append("ReportLab (basic)")
+    print("ReportLab fallback available")
     
     print(f"PDF conversion capabilities: {', '.join(capabilities)}")
     return capabilities
@@ -217,7 +253,7 @@ class MailMergeProcessor:
             # Continue without formatting if there's an error
 
     def replace_merge_fields_advanced(self, paragraph, data_row: Dict[str, Any]):
-        """Advanced merge field replacement that preserves individual character formatting"""
+        """Advanced merge field replacement that preserves both Word styles and character formatting"""
         full_text = paragraph.text
         
         # Find all merge fields
@@ -227,58 +263,135 @@ class MailMergeProcessor:
         if not merge_list:
             return
         
-        # Create a list to store new runs
-        new_runs_data = []
-        current_pos = 0
+        # PRESERVE the original paragraph style - this is crucial!
+        original_style = paragraph.style
+        original_alignment = paragraph.alignment
         
-        for match in merge_list:
+        # Store all runs with their formatting before we modify anything
+        original_runs = []
+        for run in paragraph.runs:
+            original_runs.append({
+                'text': run.text,
+                'bold': run.bold,
+                'italic': run.italic,
+                'underline': run.underline,
+                'font_name': run.font.name,
+                'font_size': run.font.size,
+                'font_color': run.font.color.rgb if run.font.color.rgb else None
+            })
+        
+        # Build character position to formatting map
+        char_to_formatting = {}
+        char_pos = 0
+        for run_info in original_runs:
+            run_text = run_info['text']
+            for i in range(len(run_text)):
+                char_to_formatting[char_pos + i] = run_info
+            char_pos += len(run_text)
+        
+        # Process merge fields in reverse order to maintain positions
+        new_text = full_text
+        formatting_changes = []  # Track where replacements happen
+        
+        for match in reversed(merge_list):
             field_name = match.group(1)
+            replacement_text = str(data_row.get(field_name, ""))
             start_pos = match.start()
             end_pos = match.end()
-            replacement_text = str(data_row.get(field_name, ""))
             
-            # Add text before the merge field
-            if start_pos > current_pos:
-                before_text = full_text[current_pos:start_pos]
-                if before_text:
-                    # Find the run that contains this text and its formatting
-                    run_info = self._find_run_for_position(paragraph, current_pos)
-                    new_runs_data.append({
-                        'text': before_text,
-                        'formatting': run_info['formatting'] if run_info else None
-                    })
+            # Store the formatting that should apply to the replacement
+            if start_pos in char_to_formatting:
+                replacement_formatting = char_to_formatting[start_pos]
+            else:
+                # Find the closest formatting
+                replacement_formatting = None
+                for pos in range(start_pos, -1, -1):
+                    if pos in char_to_formatting:
+                        replacement_formatting = char_to_formatting[pos]
+                        break
             
-            # Add the replacement text with the formatting of the merge field location
-            if replacement_text:
-                run_info = self._find_run_for_position(paragraph, start_pos)
-                new_runs_data.append({
-                    'text': replacement_text,
-                    'formatting': run_info['formatting'] if run_info else None
-                })
+            formatting_changes.append({
+                'start': start_pos,
+                'end': start_pos + len(replacement_text),
+                'formatting': replacement_formatting,
+                'text': replacement_text
+            })
             
-            current_pos = end_pos
+            # Replace in text
+            new_text = new_text[:start_pos] + replacement_text + new_text[end_pos:]
         
-        # Add remaining text after the last merge field
-        if current_pos < len(full_text):
-            remaining_text = full_text[current_pos:]
-            if remaining_text:
-                run_info = self._find_run_for_position(paragraph, current_pos)
-                new_runs_data.append({
-                    'text': remaining_text,
-                    'formatting': run_info['formatting'] if run_info else None
-                })
+        # Clear the paragraph but keep its style
+        paragraph.clear()
         
-        # Clear existing runs
-        for run in paragraph.runs:
-            run.clear()
+        # Rebuild the paragraph with preserved formatting
+        if new_text.strip():
+            current_pos = 0
+            
+            # Sort formatting changes by position
+            formatting_changes.sort(key=lambda x: x['start'])
+            
+            for change in formatting_changes:
+                # Add text before this replacement (if any)
+                if change['start'] > current_pos:
+                    before_text = new_text[current_pos:change['start']]
+                    if before_text:
+                        # Find original formatting for this position
+                        orig_formatting = None
+                        for pos in range(current_pos, change['start']):
+                            if pos in char_to_formatting:
+                                orig_formatting = char_to_formatting[pos]
+                                break
+                        
+                        run = paragraph.add_run(before_text)
+                        if orig_formatting:
+                            self._apply_preserved_formatting(run, orig_formatting)
+                
+                # Add the replacement text with its formatting
+                if change['text']:
+                    run = paragraph.add_run(change['text'])
+                    if change['formatting']:
+                        self._apply_preserved_formatting(run, change['formatting'])
+                
+                current_pos = change['end']
+            
+            # Add any remaining text
+            if current_pos < len(new_text):
+                remaining_text = new_text[current_pos:]
+                if remaining_text:
+                    # Find formatting for remaining text
+                    orig_formatting = None
+                    for pos in range(current_pos, len(full_text)):
+                        if pos in char_to_formatting:
+                            orig_formatting = char_to_formatting[pos]
+                            break
+                    
+                    run = paragraph.add_run(remaining_text)
+                    if orig_formatting:
+                        self._apply_preserved_formatting(run, orig_formatting)
         
-        # Create new runs with preserved formatting
-        for run_data in new_runs_data:
-            if run_data['text']:
-                new_run = paragraph.add_run(run_data['text'])
-                if run_data['formatting']:
-                    self._apply_formatting(new_run, run_data['formatting'])
+        # Restore paragraph-level formatting (Word styles)
+        paragraph.style = original_style
+        if original_alignment is not None:
+            paragraph.alignment = original_alignment
     
+    def _apply_preserved_formatting(self, run, formatting_info):
+        """Apply preserved formatting to a run"""
+        try:
+            if formatting_info.get('bold') is not None:
+                run.bold = formatting_info['bold']
+            if formatting_info.get('italic') is not None:
+                run.italic = formatting_info['italic']
+            if formatting_info.get('underline') is not None:
+                run.underline = formatting_info['underline']
+            if formatting_info.get('font_name'):
+                run.font.name = formatting_info['font_name']
+            if formatting_info.get('font_size'):
+                run.font.size = formatting_info['font_size']
+            if formatting_info.get('font_color'):
+                run.font.color.rgb = formatting_info['font_color']
+        except Exception as e:
+            print(f"Warning: Could not apply formatting: {e}")
+
     def replace_merge_fields(self, doc: Document, data_row: Dict[str, Any]) -> Document:
         """Replace merge fields with actual data while preserving formatting"""
         
@@ -312,38 +425,183 @@ class MailMergeProcessor:
         return doc
     
     def generate_single_word(self, output_path: str) -> bool:
-        """Generate a single Word document with all records"""
+        """Generate a single Word document with all records - preserving Word styles"""
         try:
             if not self.template_path or not self.data:
                 raise ValueError("Template and data must be loaded first")
             
-            # Create first document from template
+            from docx.enum.text import WD_BREAK
+            from copy import deepcopy
+            
+            # Start with the template document to preserve all styles and formatting
             merged_doc = Document(self.template_path)
             
-            # Replace fields for first record
+            # Replace fields for the first record
             if self.data:
                 merged_doc = self.replace_merge_fields(merged_doc, self.data[0])
             
-            # Add remaining records
+            # Add remaining records while preserving all Word styles
             for row_data in self.data[1:]:
-                # Add page break
-                merged_doc.add_page_break()
+                # Add a page break
+                page_break_para = merged_doc.add_paragraph()
+                run = page_break_para.add_run()
+                run.add_break(WD_BREAK.PAGE)
                 
-                # Load template again for each record
+                # Load template and process it
                 template_doc = Document(self.template_path)
                 processed_doc = self.replace_merge_fields(template_doc, row_data)
                 
-                # Append content
-                for element in processed_doc.element.body:
-                    merged_doc.element.body.append(element)
+                # Method 1: Try copying styles and document parts
+                try:
+                    # Copy styles from template to merged document if not already present
+                    for style in processed_doc.styles:
+                        try:
+                            if style.name not in [s.name for s in merged_doc.styles]:
+                                # Add the style to merged document
+                                merged_doc.styles.add_style(style.name, style.type)
+                                new_style = merged_doc.styles[style.name]
+                                # Copy style properties
+                                if hasattr(style, 'font'):
+                                    new_style.font.name = style.font.name
+                                    new_style.font.size = style.font.size
+                                    new_style.font.bold = style.font.bold
+                                    new_style.font.italic = style.font.italic
+                                    new_style.font.underline = style.font.underline
+                                    if style.font.color.rgb:
+                                        new_style.font.color.rgb = style.font.color.rgb
+                        except:
+                            pass  # Style might already exist or be built-in
+                except Exception as e:
+                    print(f"Warning: Could not copy styles: {e}")
+                
+                # Method 2: Copy content with style preservation
+                try:
+                    # Copy paragraphs with their complete style information
+                    for paragraph in processed_doc.paragraphs:
+                        # Create new paragraph
+                        new_para = merged_doc.add_paragraph()
+                        
+                        # Copy paragraph style by name (this preserves Word styles like "Title")
+                        try:
+                            if paragraph.style.name:
+                                # Find the style in the merged document
+                                style_found = False
+                                for style in merged_doc.styles:
+                                    if style.name == paragraph.style.name:
+                                        new_para.style = style
+                                        style_found = True
+                                        break
+                                
+                                if not style_found:
+                                    # If style not found, try to use the original style
+                                    new_para.style = paragraph.style
+                        except Exception as e:
+                            print(f"Warning: Could not copy paragraph style: {e}")
+                        
+                        # Copy paragraph formatting
+                        try:
+                            if paragraph.paragraph_format:
+                                new_para.paragraph_format.alignment = paragraph.paragraph_format.alignment
+                                new_para.paragraph_format.space_before = paragraph.paragraph_format.space_before
+                                new_para.paragraph_format.space_after = paragraph.paragraph_format.space_after
+                                new_para.paragraph_format.left_indent = paragraph.paragraph_format.left_indent
+                                new_para.paragraph_format.right_indent = paragraph.paragraph_format.right_indent
+                        except:
+                            pass
+                        
+                        # Copy runs with formatting
+                        for run in paragraph.runs:
+                            new_run = new_para.add_run(run.text)
+                            try:
+                                # Copy character formatting
+                                new_run.bold = run.bold
+                                new_run.italic = run.italic
+                                new_run.underline = run.underline
+                                
+                                # Copy font properties
+                                if run.font.name:
+                                    new_run.font.name = run.font.name
+                                if run.font.size:
+                                    new_run.font.size = run.font.size
+                                if run.font.color.rgb:
+                                    new_run.font.color.rgb = run.font.color.rgb
+                                
+                                # Copy additional font formatting
+                                new_run.font.bold = run.font.bold
+                                new_run.font.italic = run.font.italic
+                                new_run.font.underline = run.font.underline
+                                
+                            except Exception as e:
+                                print(f"Warning: Could not copy run formatting: {e}")
+                    
+                    # Copy tables with styles
+                    for table in processed_doc.tables:
+                        try:
+                            rows = len(table.rows)
+                            cols = len(table.columns) if rows > 0 else 1
+                            new_table = merged_doc.add_table(rows=rows, cols=cols)
+                            
+                            # Copy table style
+                            try:
+                                if table.style:
+                                    new_table.style = table.style
+                            except:
+                                pass
+                            
+                            # Copy table content
+                            for i, row in enumerate(table.rows):
+                                for j, cell in enumerate(row.cells):
+                                    if i < len(new_table.rows) and j < len(new_table.rows[i].cells):
+                                        new_cell = new_table.rows[i].cells[j]
+                                        new_cell.text = ""
+                                        
+                                        # Copy cell paragraphs with styles
+                                        for para_idx, paragraph in enumerate(cell.paragraphs):
+                                            if para_idx == 0:
+                                                cell_para = new_cell.paragraphs[0]
+                                            else:
+                                                cell_para = new_cell.add_paragraph()
+                                            
+                                            # Copy paragraph style
+                                            try:
+                                                cell_para.style = paragraph.style
+                                            except:
+                                                pass
+                                            
+                                            # Copy runs
+                                            for run in paragraph.runs:
+                                                cell_run = cell_para.add_run(run.text)
+                                                try:
+                                                    cell_run.bold = run.bold
+                                                    cell_run.italic = run.italic
+                                                    cell_run.underline = run.underline
+                                                    if run.font.name:
+                                                        cell_run.font.name = run.font.name
+                                                    if run.font.size:
+                                                        cell_run.font.size = run.font.size
+                                                    if run.font.color.rgb:
+                                                        cell_run.font.color.rgb = run.font.color.rgb
+                                                except:
+                                                    pass
+                        except Exception as e:
+                            print(f"Warning: Could not copy table: {e}")
+                
+                except Exception as e:
+                    print(f"Warning: Could not copy content with styles: {e}")
+                    # Fallback to original method
+                    for element in processed_doc.element.body:
+                        merged_doc.element.body.append(element)
             
             merged_doc.save(output_path)
+            print(f"Generated single Word document with {len(self.data)} records")
             return True
             
         except Exception as e:
             print(f"Error creating single Word document: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return False
-    
+
     def generate_multiple_word(self, output_dir: str) -> bool:
         """Generate multiple Word documents (one per record)"""
         try:
@@ -475,7 +733,7 @@ class MailMergeProcessor:
                 print(f"Word conversion failed: {word_error}")
                 print("Trying LibreOffice conversion...")
             
-            # Fallback to LibreOffice (Linux/Cloud servers)
+            # Fallback to LibreOffice (Linux/Windows with LibreOffice installed)
             import subprocess
             import platform
             
@@ -483,11 +741,36 @@ class MailMergeProcessor:
                 # Get the directory for output
                 output_dir = os.path.dirname(pdf_path)
                 
-                # LibreOffice command
-                cmd = [
-                    'libreoffice', '--headless', '--convert-to', 'pdf',
-                    '--outdir', output_dir, docx_path
-                ]
+                # Different LibreOffice commands for different OS
+                if platform.system() == "Windows":
+                    # Try common Windows LibreOffice paths
+                    libreoffice_paths = [
+                        r"C:\Program Files\LibreOffice\program\soffice.exe",
+                        r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+                        "soffice.exe",  # If in PATH
+                        "libreoffice"   # If in PATH
+                    ]
+                    
+                    libre_cmd = None
+                    for path in libreoffice_paths:
+                        try:
+                            result = subprocess.run([path, "--version"], 
+                                                  capture_output=True, text=True, timeout=5)
+                            if result.returncode == 0:
+                                libre_cmd = path
+                                break
+                        except:
+                            continue
+                    
+                    if not libre_cmd:
+                        raise FileNotFoundError("LibreOffice not found on Windows")
+                        
+                    cmd = [libre_cmd, "--headless", "--convert-to", "pdf", 
+                           "--outdir", output_dir, docx_path]
+                else:
+                    # Linux/macOS
+                    cmd = ["libreoffice", "--headless", "--convert-to", "pdf",
+                           "--outdir", output_dir, docx_path]
                 
                 print(f"Running LibreOffice command: {' '.join(cmd)}")
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
