@@ -453,6 +453,136 @@ class MailMergeProcessor:
             return False
     
     def process_merge(self, output_format: str, output_path: str) -> bool:
+        """Convert a Word paragraph to ReportLab with exact formatting"""
+        try:
+            from reportlab.lib.colors import Color
+            
+            # Check if paragraph is empty
+            if not paragraph.text.strip():
+                return None
+            
+            # Create paragraph style based on Word formatting
+            style = ParagraphStyle(
+                name='CustomStyle',
+                parent=getSampleStyleSheet()['Normal'],
+                fontSize=12,  # Default, will be overridden by run formatting
+                leading=14,
+                spaceAfter=6,
+            )
+            
+            # Check if it's a heading based on style name
+            if paragraph.style.name and 'heading' in paragraph.style.name.lower():
+                style.fontSize = 16
+                style.leading = 20
+                style.spaceAfter = 12
+                style.fontName = 'Helvetica-Bold'
+            elif paragraph.style.name and 'title' in paragraph.style.name.lower():
+                style.fontSize = 18
+                style.leading = 22
+                style.spaceAfter = 12
+                style.fontName = 'Helvetica-Bold'
+            
+            # Build ReportLab markup from runs
+            markup_parts = []
+            
+            for run in paragraph.runs:
+                text = run.text
+                if not text:
+                    continue
+                
+                # Start with the text
+                formatted_text = text
+                
+                # Apply formatting based on run properties
+                font_size = None
+                if run.font.size:
+                    font_size = run.font.size.pt
+                
+                font_name = 'Helvetica'
+                if run.font.name:
+                    font_name = run.font.name
+                
+                # Handle font weight and style
+                if run.bold and run.italic:
+                    if 'helvetica' in font_name.lower():
+                        font_name = 'Helvetica-BoldOblique'
+                    elif 'times' in font_name.lower():
+                        font_name = 'Times-BoldItalic'
+                    else:
+                        formatted_text = f'<b><i>{formatted_text}</i></b>'
+                elif run.bold:
+                    if 'helvetica' in font_name.lower():
+                        font_name = 'Helvetica-Bold'
+                    elif 'times' in font_name.lower():
+                        font_name = 'Times-Bold'
+                    else:
+                        formatted_text = f'<b>{formatted_text}</b>'
+                elif run.italic:
+                    if 'helvetica' in font_name.lower():
+                        font_name = 'Helvetica-Oblique'
+                    elif 'times' in font_name.lower():
+                        font_name = 'Times-Italic'
+                    else:
+                        formatted_text = f'<i>{formatted_text}</i>'
+                
+                # Handle underline
+                if run.underline:
+                    formatted_text = f'<u>{formatted_text}</u>'
+                
+                # Handle color
+                color = None
+                if run.font.color and run.font.color.rgb:
+                    rgb = run.font.color.rgb
+                    color = f'#{rgb:06x}'
+                
+                # Build font tag if needed
+                font_attrs = []
+                if font_size and font_size != 12:
+                    font_attrs.append(f'size="{int(font_size)}"')
+                if color:
+                    font_attrs.append(f'color="{color}"')
+                if font_name != 'Helvetica':
+                    # Map common fonts to ReportLab names
+                    if 'arial' in font_name.lower():
+                        font_name = 'Helvetica'
+                    elif 'times' in font_name.lower():
+                        font_name = 'Times-Roman'
+                    elif 'courier' in font_name.lower():
+                        font_name = 'Courier'
+                    font_attrs.append(f'face="{font_name}"')
+                
+                if font_attrs:
+                    formatted_text = f'<font {" ".join(font_attrs)}>{formatted_text}</font>'
+                
+                markup_parts.append(formatted_text)
+            
+            # Combine all runs
+            full_markup = ''.join(markup_parts)
+            
+            print(f"Word paragraph: '{paragraph.text}'")
+            print(f"ReportLab markup: '{full_markup}'")
+            
+            # Create ReportLab paragraph
+            return Paragraph(full_markup, style)
+            
+        except Exception as e:
+            print(f"Error converting paragraph: {str(e)}")
+            # Fallback to plain text
+            return Paragraph(paragraph.text, getSampleStyleSheet()['Normal'])
+    
+    def _convert_word_table_to_reportlab(self, table):
+        """Convert Word table to ReportLab table"""
+        # For now, convert tables to simple paragraphs
+        # TODO: Implement proper table conversion
+        elements = []
+        for row in table.rows:
+            row_text = ' | '.join([cell.text for cell in row.cells])
+            if row_text.strip():
+                elements.append(Paragraph(row_text, getSampleStyleSheet()['Normal']))
+                elements.append(Spacer(1, 6))
+        return elements
+    
+    def process_merge(self, output_format: str, output_path: str) -> bool:
         """Main processing function"""
         try:
             if not self.template_path or not self.data:

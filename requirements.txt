@@ -9,5 +9,11 @@ werkzeug==2.3.7
 python-docx==0.8.11
 openpyxl==3.1.2
 
+# PDF conversion (pure Python - no external dependencies)
+reportlab==4.4.4
+
+# Word native PDF conversion (Windows/macOS)
+docx2pdf==0.1.8
+
 # Production server
 gunicorn==21.2.0
