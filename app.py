@@ -14,12 +14,13 @@ import uuid
 from flask import Flask, request, jsonify, send_file, session
 from werkzeug.utils import secure_filename
 from docx import Document
+from docx.enum.text import WD_BREAK
 import openpyxl
 import re
 from typing import List, Dict, Any, Optional
 import mammoth
-import weasyprint
-from weasyprint import HTML
+
+from jinja2 import Template
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
@@ -285,36 +286,177 @@ class MailMergeProcessor:
         return doc
     
     def generate_single_word(self, output_path: str) -> bool:
-        """Generate a single Word document with all records"""
+        """Generate a single Word document using SECTION BREAKS - Most reliable method"""
         try:
             if not self.template_path or not self.data:
                 raise ValueError("Template and data must be loaded first")
             
-            # Create first document from template
-            merged_doc = Document(self.template_path)
+            print(f"Creating single Word document with {len(self.data)} records using SECTION BREAKS...")
             
-            # Replace fields for first record
-            if self.data:
-                merged_doc = self.replace_merge_fields(merged_doc, self.data[0])
+            # Start with first record - load fresh template and process
+            final_doc = Document(self.template_path)
+            final_doc = self.replace_merge_fields(final_doc, self.data[0])
+            print(f"Added record 1 of {len(self.data)}")
             
-            # Add remaining records
-            for row_data in self.data[1:]:
-                # Add page break
-                merged_doc.add_page_break()
+            # Add remaining records using section breaks
+            for i, row_data in enumerate(self.data[1:], 1):
+                print(f"Adding record {i+1} of {len(self.data)} with section break...")
                 
-                # Load template again for each record
+                # Load and process template for this record
                 template_doc = Document(self.template_path)
                 processed_doc = self.replace_merge_fields(template_doc, row_data)
                 
-                # Append content
-                for element in processed_doc.element.body:
-                    merged_doc.element.body.append(element)
+                # Add new section with NEW_PAGE start (more reliable than page breaks)
+                from docx.enum.section import WD_SECTION_START
+                new_section = final_doc.add_section(WD_SECTION_START.NEW_PAGE)
+                
+                # Copy all content from processed template to the new section
+                # Get the section element and body
+                section_element = new_section._sectPr
+                body_element = final_doc._body._body
+                
+                # Copy all paragraphs from processed document
+                for para in processed_doc.paragraphs:
+                    new_para = final_doc.add_paragraph()
+                    
+                    # Copy paragraph-level formatting
+                    try:
+                        new_para.style = para.style
+                        new_para.alignment = para.alignment
+                    except:
+                        pass
+                    
+                    # Copy all runs with their formatting
+                    for run in para.runs:
+                        new_run = new_para.add_run(run.text)
+                        
+                        # Copy comprehensive formatting
+                        try:
+                            if run.bold is not None:
+                                new_run.bold = run.bold
+                            if run.italic is not None:
+                                new_run.italic = run.italic
+                            if run.underline is not None:
+                                new_run.underline = run.underline
+                            if run.font.size:
+                                new_run.font.size = run.font.size
+                            if run.font.name:
+                                new_run.font.name = run.font.name
+                            if run.font.color.rgb:
+                                new_run.font.color.rgb = run.font.color.rgb
+                        except:
+                            pass
+                
+                # Copy tables from processed document
+                for table in processed_doc.tables:
+                    new_table = final_doc.add_table(rows=len(table.rows), cols=len(table.columns))
+                    
+                    # Copy table content with formatting
+                    for row_idx, row in enumerate(table.rows):
+                        for col_idx, cell in enumerate(row.cells):
+                            new_cell = new_table.cell(row_idx, col_idx)
+                            new_cell.text = ""  # Clear default text
+                            
+                            for para in cell.paragraphs:
+                                if para.text.strip() or len(para.runs) > 0:
+                                    new_para = new_cell.add_paragraph()
+                                    for run in para.runs:
+                                        new_run = new_para.add_run(run.text)
+                                        try:
+                                            if run.bold is not None:
+                                                new_run.bold = run.bold
+                                            if run.italic is not None:
+                                                new_run.italic = run.italic
+                                        except:
+                                            pass
             
-            merged_doc.save(output_path)
+            # Save the final document
+            final_doc.save(output_path)
+            print(f"✅ Successfully created single Word document using section breaks")
             return True
             
         except Exception as e:
-            print(f"Error creating single Word document: {str(e)}")
+            print(f"❌ Error creating single Word document: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            
+            # Fallback to traditional approach if section breaks fail
+            print("🔄 Trying fallback approach with traditional page breaks...")
+            return self.generate_single_word_fallback(output_path)
+
+    def generate_single_word_fallback(self, output_path: str) -> bool:
+        """Fallback method using traditional page breaks with XML manipulation"""
+        try:
+            print("Using fallback method with XML-level page break insertion...")
+            
+            # Process all records first
+            all_processed_docs = []
+            for i, row_data in enumerate(self.data):
+                template_doc = Document(self.template_path)
+                processed_doc = self.replace_merge_fields(template_doc, row_data)
+                all_processed_docs.append(processed_doc)
+                print(f"Processed record {i+1} of {len(self.data)}")
+            
+            # Start with first document
+            final_doc = all_processed_docs[0]
+            
+            # Add remaining documents with XML page breaks
+            for i, doc in enumerate(all_processed_docs[1:], 1):
+                print(f"Merging record {i+1} with XML page break...")
+                
+                # Insert page break at XML level (more reliable)
+                body = final_doc._body._body
+                
+                # Create page break paragraph
+                from docx.oxml import parse_xml
+                from docx.oxml.ns import nsdecls, qn
+                
+                # Add page break using XML
+                page_break_xml = f'''
+                <w:p {nsdecls('w')}>
+                    <w:r>
+                        <w:br w:type="page"/>
+                    </w:r>
+                </w:p>
+                '''
+                page_break_p = parse_xml(page_break_xml)
+                body.append(page_break_p)
+                
+                # Copy all content from the document
+                for para in doc.paragraphs:
+                    new_para = final_doc.add_paragraph()
+                    
+                    try:
+                        new_para.style = para.style
+                        new_para.alignment = para.alignment
+                    except:
+                        pass
+                    
+                    for run in para.runs:
+                        new_run = new_para.add_run(run.text)
+                        try:
+                            if run.bold is not None:
+                                new_run.bold = run.bold
+                            if run.italic is not None:
+                                new_run.italic = run.italic
+                            if run.underline is not None:
+                                new_run.underline = run.underline
+                        except:
+                            pass
+                
+                # Copy tables
+                for table in doc.tables:
+                    new_table = final_doc.add_table(rows=len(table.rows), cols=len(table.columns))
+                    for row_idx, row in enumerate(table.rows):
+                        for col_idx, cell in enumerate(row.cells):
+                            new_table.cell(row_idx, col_idx).text = cell.text
+            
+            final_doc.save(output_path)
+            print("✅ Fallback method successful")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Fallback method also failed: {str(e)}")
             return False
     
     def generate_multiple_word(self, output_dir: str) -> bool:
@@ -400,8 +542,13 @@ class MailMergeProcessor:
             </html>
             """
             
-            HTML(string=html_with_css).write_pdf(output_path)
-            return True
+            try:
+                import weasyprint
+                weasyprint.HTML(string=html_with_css).write_pdf(output_path)
+                return True
+            except ImportError:
+                print("WeasyPrint not available for HTML to PDF conversion")
+                return False
         except Exception as e:
             print(f"Error converting HTML to PDF: {str(e)}")
             return False
