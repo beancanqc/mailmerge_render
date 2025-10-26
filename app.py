@@ -940,7 +940,18 @@ class MailMergeProcessor:
             # Create custom styles that match common Word styles
             custom_styles = {}
             
-            # Title style (for "Invoice" headers)
+            # Invoice title style (blue with underline)
+            custom_styles['invoice_title'] = ParagraphStyle(
+                'InvoiceTitle',
+                parent=styles['Title'],
+                fontSize=18,
+                textColor=colors.blue,
+                spaceAfter=12,
+                alignment=TA_CENTER,
+                fontName='Helvetica-Bold'
+            )
+            
+            # Title style (for other headers)
             custom_styles['Title'] = ParagraphStyle(
                 'CustomTitle',
                 parent=styles['Title'],
@@ -976,17 +987,27 @@ class MailMergeProcessor:
             )
             
             story = []
+            invoice_count = 0
             
             # Process each paragraph with formatting detection
             for paragraph in doc.paragraphs:
                 if paragraph.text.strip():
                     text = paragraph.text.strip()
                     
-                    # Detect style based on content and apply appropriate formatting
-                    style_to_use = self._detect_paragraph_style(paragraph, text, custom_styles, styles)
-                    
-                    # Enhanced text with formatting preservation
-                    formatted_text = self._extract_formatted_text_enhanced(paragraph)
+                    # Check if this is an "Invoice" title and add page break
+                    if text.lower() == 'invoice':
+                        if invoice_count > 0:
+                            story.append(PageBreak())
+                        invoice_count += 1
+                        # Use special invoice style
+                        style_to_use = custom_styles['invoice_title']
+                        # Add underline to invoice text
+                        formatted_text = f'<u>{text}</u>'
+                    else:
+                        # Detect style based on content and apply appropriate formatting
+                        style_to_use = self._detect_paragraph_style(paragraph, text, custom_styles, styles)
+                        # Enhanced text with formatting preservation
+                        formatted_text = self._extract_formatted_text_enhanced(paragraph)
                     
                     if formatted_text:
                         para = Paragraph(formatted_text, style_to_use)
@@ -1011,9 +1032,9 @@ class MailMergeProcessor:
     def _detect_paragraph_style(self, paragraph, text, custom_styles, default_styles):
         """Detect appropriate style based on paragraph properties and content"""
         try:
-            # Check if it's an "Invoice" title
+            # Check if it's an "Invoice" title - use special invoice style
             if text.lower() == "invoice":
-                return custom_styles['Title']
+                return custom_styles['invoice_title']
             
             # Check Word style name if available
             if hasattr(paragraph, 'style') and paragraph.style:
@@ -1070,6 +1091,17 @@ class MailMergeProcessor:
             # Create enhanced custom styles based on document analysis
             custom_styles = {}
             
+            # Special Invoice title style (blue with underline)
+            custom_styles['invoice_title'] = ParagraphStyle(
+                'InvoiceTitle',
+                parent=styles['Title'],
+                fontSize=18,
+                spaceAfter=18,
+                alignment=TA_CENTER,
+                textColor=colors.blue,
+                fontName='Helvetica-Bold'
+            )
+            
             # Title style (enhanced)
             custom_styles['title'] = ParagraphStyle(
                 'CustomTitle',
@@ -1103,6 +1135,7 @@ class MailMergeProcessor:
             )
             
             # Process each paragraph with enhanced formatting
+            invoice_count = 0
             for paragraph in doc.paragraphs:
                 if not paragraph.text.strip():
                     continue
@@ -1110,11 +1143,22 @@ class MailMergeProcessor:
                 # Detect appropriate style
                 detected_style = self._detect_advanced_style(paragraph, formatting_info)
                 
+                # Add page break before each new invoice (except the first one)
+                if detected_style == 'invoice_title':
+                    if invoice_count > 0:
+                        story.append(PageBreak())
+                    invoice_count += 1
+                
                 # Get enhanced formatted text
                 formatted_text = self._extract_formatted_text_enhanced(paragraph)
                 
                 # Choose style
-                if detected_style == 'title':
+                if detected_style == 'invoice_title':
+                    para_style = custom_styles['invoice_title']
+                    # Add underline formatting to the text
+                    if formatted_text and not '<u>' in formatted_text:
+                        formatted_text = f'<u>{formatted_text}</u>'
+                elif detected_style == 'title':
                     para_style = custom_styles['title']
                 elif detected_style == 'heading':
                     para_style = custom_styles['heading']
@@ -1159,9 +1203,12 @@ class MailMergeProcessor:
         try:
             text = paragraph.text.strip().lower()
             
+            # Check for "Invoice" specifically - should be blue and underlined
+            if text == 'invoice':
+                return 'invoice_title'
+            
             # Check for common title patterns
-            if (text == 'invoice' or 
-                'title' in paragraph.style.name.lower() if paragraph.style else False or
+            if ('title' in paragraph.style.name.lower() if paragraph.style else False or
                 len(text) < 50 and text.isupper()):
                 return 'title'
             
