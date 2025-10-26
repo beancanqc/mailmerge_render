@@ -536,25 +536,30 @@ class MailMergeProcessor:
     def replace_merge_fields(self, doc: Document, data_row: Dict[str, Any]) -> Document:
         """Replace merge fields with actual data while preserving formatting"""
         
-        # Replace in paragraphs with advanced formatting preservation
+        # First pass: Replace in paragraphs with advanced formatting preservation
         for paragraph in doc.paragraphs:
             if '{{' in paragraph.text and '}}' in paragraph.text:
                 self.replace_merge_fields_advanced(paragraph, data_row)
-            
-            # Apply special formatting to Invoice titles
+        
+        # Second pass: Apply special formatting to Invoice titles AFTER replacement
+        for paragraph in doc.paragraphs:
             if paragraph.text.strip().lower() == 'invoice':
+                print(f"Found Invoice title in paragraph, applying formatting...")
                 self._apply_invoice_title_formatting(paragraph)
         
         # Replace in tables
         for table in doc.tables:
             for row in table.rows:
                 for cell in row.cells:
+                    # First pass: Replace merge fields
                     for paragraph in cell.paragraphs:
                         if '{{' in paragraph.text and '}}' in paragraph.text:
                             self.replace_merge_fields_advanced(paragraph, data_row)
-                        
-                        # Apply special formatting to Invoice titles in tables too
+                    
+                    # Second pass: Apply formatting to Invoice titles AFTER replacement
+                    for paragraph in cell.paragraphs:
                         if paragraph.text.strip().lower() == 'invoice':
+                            print(f"Found Invoice title in table cell, applying formatting...")
                             self._apply_invoice_title_formatting(paragraph)
         
         # Replace in headers and footers
@@ -868,32 +873,40 @@ class MailMergeProcessor:
     def _convert_docx_to_pdf(self, docx_path: str, pdf_path: str) -> bool:
         """Convert Word document to PDF using advanced conversion methods"""
         try:
+            print(f"=== PDF CONVERSION DEBUG ===")
             print(f"Converting Word document to PDF...")
             print(f"Input: {docx_path}")
             print(f"Output: {pdf_path}")
+            print(f"Mammoth available: {MAMMOTH_AVAILABLE}")
+            print(f"pdfkit available: {PDFKIT_AVAILABLE}")
             
             # Try HTML-based conversion first (best formatting preservation)
             if MAMMOTH_AVAILABLE and PDFKIT_AVAILABLE:
-                print("Attempting HTML-based conversion for perfect formatting...")
+                print("=== Attempting HTML-based conversion for perfect formatting ===")
                 if self._convert_via_html(docx_path, pdf_path):
+                    print("=== HTML conversion SUCCEEDED ===")
                     return True
-                print("HTML conversion failed, trying other methods...")
+                print("=== HTML conversion FAILED, trying other methods ===")
+            else:
+                print(f"=== Skipping HTML conversion - mammoth: {MAMMOTH_AVAILABLE}, pdfkit: {PDFKIT_AVAILABLE} ===")
             
             # Try Word's native conversion (Windows/macOS)
             try:
+                print("=== Attempting Word native conversion (docx2pdf) ===")
                 from docx2pdf import convert
                 convert(docx_path, pdf_path)
-                print(f"Successfully converted to PDF using Word: {pdf_path}")
+                print(f"=== Successfully converted to PDF using Word: {pdf_path} ===")
                 return True
             except Exception as word_error:
-                print(f"Word conversion failed: {word_error}")
-                print("Trying LibreOffice conversion...")
+                print(f"=== Word conversion failed: {word_error} ===")
+                print("=== Trying LibreOffice conversion ===")
             
             # Fallback to LibreOffice (Linux/Windows with LibreOffice installed)
             import subprocess
             import platform
             
             try:
+                print("=== Attempting LibreOffice conversion ===")
                 # Get the directory for output
                 output_dir = os.path.dirname(pdf_path)
                 
@@ -914,6 +927,7 @@ class MailMergeProcessor:
                                                   capture_output=True, text=True, timeout=5)
                             if result.returncode == 0:
                                 libre_cmd = path
+                                print(f"=== Found LibreOffice at: {path} ===")
                                 break
                         except:
                             continue
@@ -928,7 +942,7 @@ class MailMergeProcessor:
                     cmd = ["libreoffice", "--headless", "--convert-to", "pdf",
                            "--outdir", output_dir, docx_path]
                 
-                print(f"Running LibreOffice command: {' '.join(cmd)}")
+                print(f"=== Running LibreOffice command: {' '.join(cmd)} ===")
                 
                 # Add environment variables for headless operation
                 import os
@@ -946,26 +960,26 @@ class MailMergeProcessor:
                         if expected_pdf != pdf_path:
                             os.rename(expected_pdf, pdf_path)
                         
-                        print(f"Successfully converted to PDF using LibreOffice: {pdf_path}")
+                        print(f"=== Successfully converted to PDF using LibreOffice: {pdf_path} ===")
                         return True
                     else:
-                        print(f"LibreOffice conversion succeeded but PDF not found at: {expected_pdf}")
+                        print(f"=== LibreOffice conversion succeeded but PDF not found at: {expected_pdf} ===")
                         return False
                 else:
-                    print(f"LibreOffice conversion failed. Return code: {result.returncode}")
+                    print(f"=== LibreOffice conversion failed. Return code: {result.returncode} ===")
                     print(f"stdout: {result.stdout}")
                     print(f"stderr: {result.stderr}")
                     return False
                     
             except subprocess.TimeoutExpired:
-                print("LibreOffice conversion timed out")
+                print("=== LibreOffice conversion timed out ===")
                 return False
             except FileNotFoundError:
-                print("LibreOffice not found. Trying format-preserving PDF generation...")
+                print("=== LibreOffice not found. Trying format-preserving PDF generation ===")
                 return self._generate_format_preserving_pdf(docx_path, pdf_path)
             except Exception as libre_error:
-                print(f"LibreOffice conversion error: {libre_error}")
-                print("Trying format-preserving PDF generation...")
+                print(f"=== LibreOffice conversion error: {libre_error} ===")
+                print("=== Trying format-preserving PDF generation ===")
                 return self._generate_format_preserving_pdf(docx_path, pdf_path)
             
         except Exception as e:
@@ -994,6 +1008,12 @@ class MailMergeProcessor:
             # Step 2: Enhance HTML with better CSS for PDF
             enhanced_html = self._enhance_html_for_pdf(html_content)
             
+            # Debug: Save HTML to see what we're getting
+            debug_html_path = pdf_path.replace('.pdf', '_debug.html')
+            with open(debug_html_path, 'w', encoding='utf-8') as f:
+                f.write(enhanced_html)
+            print(f"DEBUG: Saved HTML to {debug_html_path}")
+            
             # Step 3: Convert HTML to PDF using pdfkit (wkhtmltopdf)
             try:
                 # Check if wkhtmltopdf is available
@@ -1002,11 +1022,11 @@ class MailMergeProcessor:
                     result = subprocess.run(['wkhtmltopdf', '--version'], 
                                           capture_output=True, text=True, timeout=5)
                     if result.returncode != 0:
-                        print("wkhtmltopdf not found - cannot use HTML conversion")
-                        return False
-                except:
-                    print("wkhtmltopdf not available on this system")
-                    return False
+                        print("wkhtmltopdf not found - trying alternative HTML conversion")
+                        return self._convert_html_alternative(enhanced_html, pdf_path)
+                except Exception as e:
+                    print(f"wkhtmltopdf not available on this system: {e}")
+                    return self._convert_html_alternative(enhanced_html, pdf_path)
                 
                 # Configure pdfkit options for better rendering
                 options = {
@@ -1025,7 +1045,7 @@ class MailMergeProcessor:
                 return True
             except Exception as pdfkit_error:
                 print(f"pdfkit conversion failed: {pdfkit_error}")
-                return False
+                return self._convert_html_alternative(enhanced_html, pdf_path)
             
         except Exception as e:
             print(f"HTML-based conversion failed: {e}")
@@ -1038,6 +1058,91 @@ class MailMergeProcessor:
             return {"src": "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"}
         except:
             return {"src": ""}
+
+    def _convert_html_alternative(self, html_content: str, pdf_path: str) -> bool:
+        """Alternative HTML to PDF conversion using weasyprint or reportlab"""
+        try:
+            # Try weasyprint first
+            try:
+                import weasyprint
+                weasyprint.HTML(string=html_content).write_pdf(pdf_path)
+                print(f"Successfully converted to PDF using WeasyPrint: {pdf_path}")
+                return True
+            except ImportError:
+                print("WeasyPrint not available, trying ReportLab HTML conversion...")
+            except Exception as e:
+                print(f"WeasyPrint conversion failed: {e}")
+            
+            # Fallback to creating PDF directly from HTML content using reportlab
+            print("Using ReportLab to create PDF from HTML content...")
+            return self._create_pdf_from_html_content(html_content, pdf_path)
+            
+        except Exception as e:
+            print(f"Alternative HTML conversion failed: {e}")
+            return False
+
+    def _create_pdf_from_html_content(self, html_content: str, pdf_path: str) -> bool:
+        """Create PDF from HTML content using ReportLab"""
+        try:
+            from reportlab.pdfgen import canvas
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib import colors
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+            from reportlab.lib.units import inch
+            import re
+            from html import unescape
+            
+            # Parse basic HTML content to extract text and formatting
+            # This is a simplified approach - extract text and basic formatting cues
+            
+            # Remove HTML tags but preserve content
+            import html
+            text_content = re.sub('<[^<]+?>', '', html_content)
+            text_content = html.unescape(text_content)
+            
+            # Create PDF
+            doc = SimpleDocTemplate(pdf_path, pagesize=A4)
+            styles = getSampleStyleSheet()
+            story = []
+            
+            # Create custom styles for blue underlined text
+            blue_underline_style = ParagraphStyle(
+                'BlueUnderline',
+                parent=styles['Normal'],
+                fontName='Helvetica-Bold',
+                fontSize=14,
+                textColor=colors.blue,
+                underline=True,
+                alignment=1  # Center alignment
+            )
+            
+            # Split content into paragraphs
+            paragraphs = text_content.split('\n')
+            
+            for para_text in paragraphs:
+                para_text = para_text.strip()
+                if not para_text:
+                    story.append(Spacer(1, 12))
+                    continue
+                
+                # Check if this looks like an Invoice title
+                if para_text.lower() == 'invoice':
+                    para = Paragraph(para_text, blue_underline_style)
+                    story.append(para)
+                    story.append(Spacer(1, 12))
+                else:
+                    para = Paragraph(para_text, styles['Normal'])
+                    story.append(para)
+                    story.append(Spacer(1, 6))
+            
+            doc.build(story)
+            print(f"Successfully created PDF from HTML using ReportLab: {pdf_path}")
+            return True
+            
+        except Exception as e:
+            print(f"ReportLab HTML conversion failed: {e}")
+            return False
 
     def _enhance_html_for_pdf(self, html_content: str) -> str:
         """Enhance HTML with CSS for better PDF formatting"""
@@ -1061,6 +1166,15 @@ class MailMergeProcessor:
             text-align: left;
         }
         
+        /* Blue text preservation - target Invoice titles */
+        .invoice-title, p:contains("Invoice") {
+            color: #0000FF !important;
+            text-decoration: underline !important;
+            font-weight: bold !important;
+            text-align: center !important;
+            font-size: 14pt !important;
+        }
+        
         /* Blue text preservation */
         span[style*="color"] {
             /* Preserve inline colors */
@@ -1076,59 +1190,55 @@ class MailMergeProcessor:
             font-weight: bold;
         }
         
-        /* Italic preservation */
-        em, i, span[style*="font-style: italic"] {
-            font-style: italic;
-        }
-        
-        /* Table styling */
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 12pt 0;
-        }
-        
-        table td, table th {
-            border: 1pt solid #000000;
-            padding: 6pt;
-            text-align: left;
-        }
-        
-        table th {
-            background-color: #f0f0f0;
-            font-weight: bold;
-        }
-        
-        /* Page break before titles */
+        /* Ensure page breaks work */
         .page-break {
             page-break-before: always;
         }
         
-        /* Special styling for blue underlined titles */
-        .invoice-title {
-            color: #0000FF;
-            text-decoration: underline;
+        /* Table styling */
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 12pt 0;
+        }
+        
+        th, td {
+            border: 1px solid #000;
+            padding: 6pt;
+            text-align: left;
+        }
+        
+        th {
+            background-color: #f0f0f0;
             font-weight: bold;
-            font-size: 18pt;
-            text-align: center;
-            margin: 18pt 0;
         }
         </style>
         """
         
-        # Enhance HTML structure
+        # Add CSS and enhance HTML content
         enhanced_html = f"""
         <!DOCTYPE html>
         <html>
         <head>
-            <meta charset="UTF-8">
+            <meta charset="utf-8">
             {css_styles}
         </head>
         <body>
-            {self._process_html_content(html_content)}
+            {html_content}
         </body>
         </html>
         """
+        
+        # Post-process HTML to add special formatting to Invoice titles
+        import re
+        
+        # Look for paragraphs containing just "Invoice" and add special class
+        enhanced_html = re.sub(
+            r'<p>(\s*Invoice\s*)</p>',
+            r'<p class="invoice-title" style="color: #0000FF; text-decoration: underline; font-weight: bold; text-align: center; font-size: 14pt;">\1</p>',
+            enhanced_html,
+            flags=re.IGNORECASE
+        )
         
         return enhanced_html
 
