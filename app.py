@@ -904,12 +904,12 @@ class MailMergeProcessor:
                 print("LibreOffice conversion timed out")
                 return False
             except FileNotFoundError:
-                print("LibreOffice not found. Trying basic PDF generation...")
-                return self._generate_basic_pdf(docx_path, pdf_path)
+                print("LibreOffice not found. Trying format-preserving PDF generation...")
+                return self._generate_format_preserving_pdf(docx_path, pdf_path)
             except Exception as libre_error:
                 print(f"LibreOffice conversion error: {libre_error}")
-                print("Trying basic PDF generation...")
-                return self._generate_basic_pdf(docx_path, pdf_path)
+                print("Trying format-preserving PDF generation...")
+                return self._generate_format_preserving_pdf(docx_path, pdf_path)
             
         except Exception as e:
             print(f"Error converting Word document to PDF: {str(e)}")
@@ -918,37 +918,570 @@ class MailMergeProcessor:
             return False
     
     def _generate_basic_pdf(self, docx_path: str, pdf_path: str) -> bool:
-        """Basic PDF generation as final fallback using ReportLab"""
+        """Enhanced PDF generation with formatting preservation using ReportLab"""
         try:
-            print("Using basic PDF generation (ReportLab) as fallback...")
+            print("Using enhanced PDF generation (ReportLab) with formatting preservation...")
             from reportlab.lib.pagesizes import letter
-            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-            from reportlab.lib.styles import getSampleStyleSheet
+            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib import colors
+            from reportlab.lib.units import inch
+            from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
             
             # Load the Word document
             doc = Document(docx_path)
             
             # Create PDF document
+            pdf_doc = SimpleDocTemplate(pdf_path, pagesize=letter, 
+                                      leftMargin=0.75*inch, rightMargin=0.75*inch,
+                                      topMargin=0.75*inch, bottomMargin=0.75*inch)
+            styles = getSampleStyleSheet()
+            
+            # Create custom styles that match common Word styles
+            custom_styles = {}
+            
+            # Title style (for "Invoice" headers)
+            custom_styles['Title'] = ParagraphStyle(
+                'CustomTitle',
+                parent=styles['Title'],
+                fontSize=24,
+                textColor=colors.red,
+                spaceAfter=12,
+                fontName='Helvetica-Bold'
+            )
+            
+            # Heading styles
+            custom_styles['Heading 1'] = ParagraphStyle(
+                'CustomHeading1',
+                parent=styles['Heading1'],
+                fontSize=18,
+                textColor=colors.blue,
+                fontName='Helvetica-Bold'
+            )
+            
+            custom_styles['Heading 2'] = ParagraphStyle(
+                'CustomHeading2',
+                parent=styles['Heading2'],
+                fontSize=14,
+                textColor=colors.darkblue,
+                fontName='Helvetica-Bold'
+            )
+            
+            # Enhanced normal style
+            custom_styles['Normal'] = ParagraphStyle(
+                'CustomNormal',
+                parent=styles['Normal'],
+                fontSize=12,
+                fontName='Helvetica'
+            )
+            
+            story = []
+            
+            # Process each paragraph with formatting detection
+            for paragraph in doc.paragraphs:
+                if paragraph.text.strip():
+                    text = paragraph.text.strip()
+                    
+                    # Detect style based on content and apply appropriate formatting
+                    style_to_use = self._detect_paragraph_style(paragraph, text, custom_styles, styles)
+                    
+                    # Enhanced text with formatting preservation
+                    formatted_text = self._extract_formatted_text_enhanced(paragraph)
+                    
+                    if formatted_text:
+                        para = Paragraph(formatted_text, style_to_use)
+                        story.append(para)
+                        story.append(Spacer(1, 6))
+            
+            # Add tables if any
+            for table in doc.tables:
+                story.append(self._convert_table_to_reportlab(table, custom_styles))
+                story.append(Spacer(1, 12))
+            
+            # Build PDF
+            pdf_doc.build(story)
+            print(f"Enhanced PDF generated successfully: {pdf_path}")
+            return True
+            
+        except Exception as e:
+            print(f"Enhanced PDF generation failed: {str(e)}")
+            # Fall back to even simpler generation
+            return self._generate_simple_pdf_fallback(docx_path, pdf_path)
+    
+    def _detect_paragraph_style(self, paragraph, text, custom_styles, default_styles):
+        """Detect appropriate style based on paragraph properties and content"""
+        try:
+            # Check if it's an "Invoice" title
+            if text.lower() == "invoice":
+                return custom_styles['Title']
+            
+            # Check Word style name if available
+            if hasattr(paragraph, 'style') and paragraph.style:
+                style_name = paragraph.style.name
+                if style_name in custom_styles:
+                    return custom_styles[style_name]
+                elif style_name in ['Title', 'Heading 1', 'Heading 2']:
+                    return custom_styles.get(style_name, default_styles['Normal'])
+            
+            # Check for formatting clues
+            if paragraph.runs:
+                first_run = paragraph.runs[0]
+                if first_run.bold and first_run.font.size and first_run.font.size.pt > 16:
+                    return custom_styles['Title']
+                elif first_run.bold and first_run.font.size and first_run.font.size.pt > 14:
+                    return custom_styles['Heading 1']
+                elif first_run.bold:
+                    return custom_styles['Heading 2']
+            
+            return custom_styles['Normal']
+            
+        except Exception as e:
+            print(f"Style detection failed: {e}")
+            return default_styles['Normal']
+    
+    def _generate_format_preserving_pdf(self, doc_path, pdf_path):
+        """Advanced PDF generation with maximum format preservation"""
+        try:
+            print("Attempting format-preserving PDF generation...")
+            
+            # First, analyze the document
+            formatting_info = self._analyze_document_formatting(doc_path)
+            if not formatting_info:
+                return self._generate_enhanced_pdf(doc_path, pdf_path)
+            
+            from reportlab.lib.pagesizes import letter
+            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib import colors
+            from reportlab.lib.units import inch
+            from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT, TA_JUSTIFY
+            
+            # Load document
+            doc = Document(doc_path)
+            
+            # Create PDF document
+            pdf_doc = SimpleDocTemplate(pdf_path, pagesize=letter, 
+                                      topMargin=0.75*inch, bottomMargin=0.75*inch,
+                                      leftMargin=0.75*inch, rightMargin=0.75*inch)
+            
+            styles = getSampleStyleSheet()
+            story = []
+            
+            # Create enhanced custom styles based on document analysis
+            custom_styles = {}
+            
+            # Title style (enhanced)
+            custom_styles['title'] = ParagraphStyle(
+                'CustomTitle',
+                parent=styles['Title'],
+                fontSize=18,
+                spaceAfter=18,
+                alignment=TA_CENTER,
+                textColor=colors.black,
+                fontName='Helvetica-Bold'
+            )
+            
+            # Heading styles
+            custom_styles['heading'] = ParagraphStyle(
+                'CustomHeading',
+                parent=styles['Heading1'],
+                fontSize=14,
+                spaceAfter=12,
+                textColor=colors.black,
+                fontName='Helvetica-Bold'
+            )
+            
+            # Enhanced normal style
+            custom_styles['normal'] = ParagraphStyle(
+                'CustomNormal',
+                parent=styles['Normal'],
+                fontSize=11,
+                spaceAfter=6,
+                textColor=colors.black,
+                fontName='Helvetica',
+                leading=14
+            )
+            
+            # Process each paragraph with enhanced formatting
+            for paragraph in doc.paragraphs:
+                if not paragraph.text.strip():
+                    continue
+                
+                # Detect appropriate style
+                detected_style = self._detect_advanced_style(paragraph, formatting_info)
+                
+                # Get enhanced formatted text
+                formatted_text = self._extract_formatted_text_enhanced(paragraph)
+                
+                # Choose style
+                if detected_style == 'title':
+                    para_style = custom_styles['title']
+                elif detected_style == 'heading':
+                    para_style = custom_styles['heading']
+                else:
+                    para_style = custom_styles['normal']
+                
+                # Create paragraph
+                try:
+                    if formatted_text and formatted_text.strip():
+                        p = Paragraph(formatted_text, para_style)
+                        story.append(p)
+                        story.append(Spacer(1, 6))
+                except Exception as e:
+                    print(f"Paragraph creation failed: {e}")
+                    # Fallback to plain text
+                    if paragraph.text.strip():
+                        p = Paragraph(paragraph.text, para_style)
+                        story.append(p)
+                        story.append(Spacer(1, 6))
+            
+            # Process tables with enhanced formatting
+            for table in doc.tables:
+                try:
+                    table_element = self._convert_table_enhanced(table, formatting_info)
+                    if table_element:
+                        story.append(table_element)
+                        story.append(Spacer(1, 12))
+                except Exception as e:
+                    print(f"Table conversion failed: {e}")
+            
+            # Build the PDF
+            pdf_doc.build(story)
+            print(f"Format-preserving PDF generated successfully: {pdf_path}")
+            return True
+            
+        except Exception as e:
+            print(f"Format-preserving PDF generation failed: {e}")
+            return self._generate_enhanced_pdf(doc_path, pdf_path)
+
+    def _detect_advanced_style(self, paragraph, formatting_info):
+        """Advanced style detection using document analysis"""
+        try:
+            text = paragraph.text.strip().lower()
+            
+            # Check for common title patterns
+            if (text == 'invoice' or 
+                'title' in paragraph.style.name.lower() if paragraph.style else False or
+                len(text) < 50 and text.isupper()):
+                return 'title'
+            
+            # Check for heading patterns
+            if (paragraph.style and 'heading' in paragraph.style.name.lower() or
+                len(text) < 100 and any(word in text for word in ['summary', 'details', 'information', 'description'])):
+                return 'heading'
+            
+            return 'normal'
+            
+        except:
+            return 'normal'
+
+    def _convert_table_enhanced(self, table, formatting_info):
+        """Enhanced table conversion with formatting preservation"""
+        try:
+            from reportlab.platypus import Table, TableStyle, Spacer
+            from reportlab.lib import colors
+            
+            # Extract table data with formatting
+            data = []
+            for row_idx, row in enumerate(table.rows):
+                row_data = []
+                for cell in row.cells:
+                    # Get cell text with basic formatting
+                    cell_text = cell.text.strip()
+                    if not cell_text:
+                        cell_text = ""
+                    row_data.append(cell_text)
+                data.append(row_data)
+            
+            if not data:
+                return Spacer(1, 1)
+            
+            # Create enhanced table
+            t = Table(data, hAlign='LEFT')
+            
+            # Enhanced table styling
+            table_style = [
+                ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                ('TOPPADDING', (0, 0), (-1, 0), 8),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+                ('FONTSIZE', (0, 1), (-1, -1), 9),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ]
+            
+            t.setStyle(TableStyle(table_style))
+            return t
+            
+        except Exception as e:
+            print(f"Enhanced table conversion failed: {e}")
+            return Spacer(1, 1)
+
+    def _analyze_document_formatting(self, doc_path):
+        """Analyze the Word document to extract comprehensive formatting information"""
+        try:
+            doc = Document(doc_path)
+            formatting_info = {
+                'styles_used': set(),
+                'colors_used': set(),
+                'fonts_used': set(),
+                'has_tables': False,
+                'has_images': False,
+                'paragraph_count': 0,
+                'formatted_runs': []
+            }
+            
+            for paragraph in doc.paragraphs:
+                if paragraph.text.strip():
+                    formatting_info['paragraph_count'] += 1
+                    
+                    # Detect style
+                    if paragraph.style:
+                        formatting_info['styles_used'].add(paragraph.style.name)
+                    
+                    # Analyze runs for detailed formatting
+                    for run in paragraph.runs:
+                        run_info = {
+                            'text': run.text,
+                            'bold': run.bold,
+                            'italic': run.italic,
+                            'underline': run.underline,
+                            'font_size': None,
+                            'font_name': None,
+                            'color': None
+                        }
+                        
+                        # Font information
+                        if hasattr(run.font, 'size') and run.font.size:
+                            run_info['font_size'] = run.font.size.pt
+                        
+                        if hasattr(run.font, 'name') and run.font.name:
+                            run_info['font_name'] = run.font.name
+                            formatting_info['fonts_used'].add(run.font.name)
+                        
+                        # Color information
+                        if hasattr(run.font, 'color') and run.font.color:
+                            try:
+                                if hasattr(run.font.color, 'rgb') and run.font.color.rgb:
+                                    r, g, b = run.font.color.rgb
+                                    hex_color = f"#{r:02x}{g:02x}{b:02x}"
+                                    run_info['color'] = hex_color
+                                    formatting_info['colors_used'].add(hex_color)
+                            except:
+                                pass
+                        
+                        formatting_info['formatted_runs'].append(run_info)
+            
+            # Check for tables
+            if doc.tables:
+                formatting_info['has_tables'] = True
+            
+            print(f"Document analysis: {len(formatting_info['styles_used'])} styles, "
+                  f"{len(formatting_info['colors_used'])} colors, "
+                  f"{len(formatting_info['fonts_used'])} fonts, "
+                  f"{formatting_info['paragraph_count']} paragraphs")
+            
+            return formatting_info
+            
+        except Exception as e:
+            print(f"Document analysis failed: {e}")
+            return None
+
+    def _extract_formatted_text_enhanced(self, paragraph):
+        """Enhanced text extraction with comprehensive formatting support"""
+        try:
+            formatted_parts = []
+            
+            for run in paragraph.runs:
+                text = run.text
+                if not text:
+                    continue
+                
+                # Start with the base text
+                formatted_text = text
+                
+                # Apply bold
+                if run.bold:
+                    formatted_text = f"<b>{formatted_text}</b>"
+                
+                # Apply italic
+                if run.italic:
+                    formatted_text = f"<i>{formatted_text}</i>"
+                
+                # Apply underline
+                if run.underline:
+                    formatted_text = f"<u>{formatted_text}</u>"
+                
+                # Handle font size
+                if hasattr(run.font, 'size') and run.font.size:
+                    try:
+                        # Convert from Pt to points
+                        size_pt = run.font.size.pt
+                        if size_pt != 12:  # Only apply if different from default
+                            formatted_text = f'<font size="{size_pt}">{formatted_text}</font>'
+                    except:
+                        pass
+                
+                # Handle font color with enhanced detection
+                color_applied = False
+                try:
+                    if hasattr(run.font, 'color') and run.font.color:
+                        color = run.font.color
+                        
+                        # Try RGB color first
+                        if hasattr(color, 'rgb') and color.rgb:
+                            r, g, b = color.rgb
+                            hex_color = f"#{r:02x}{g:02x}{b:02x}"
+                            if hex_color != "#000000":  # Only apply if not black
+                                formatted_text = f'<font color="{hex_color}">{formatted_text}</font>'
+                                color_applied = True
+                        
+                        # Try theme color as fallback
+                        elif hasattr(color, 'theme_color') and color.theme_color:
+                            # Map common theme colors to hex
+                            theme_colors = {
+                                1: "#FF0000",  # Red
+                                2: "#00FF00",  # Green
+                                3: "#0000FF",  # Blue
+                                4: "#FFFF00",  # Yellow
+                                5: "#FF00FF",  # Magenta
+                                6: "#00FFFF",  # Cyan
+                            }
+                            if color.theme_color in theme_colors:
+                                hex_color = theme_colors[color.theme_color]
+                                formatted_text = f'<font color="{hex_color}">{formatted_text}</font>'
+                                color_applied = True
+                except:
+                    pass
+                
+                # Handle font name/family
+                try:
+                    if hasattr(run.font, 'name') and run.font.name:
+                        font_name = run.font.name
+                        # Map to ReportLab supported fonts
+                        font_mapping = {
+                            'Arial': 'Helvetica',
+                            'Times New Roman': 'Times-Roman',
+                            'Courier New': 'Courier',
+                            'Calibri': 'Helvetica',
+                            'Tahoma': 'Helvetica',
+                            'Verdana': 'Helvetica'
+                        }
+                        rl_font = font_mapping.get(font_name, 'Helvetica')
+                        if rl_font != 'Helvetica':  # Only apply if different from default
+                            formatted_text = f'<font face="{rl_font}">{formatted_text}</font>'
+                except:
+                    pass
+                
+                formatted_parts.append(formatted_text)
+            
+            result = ''.join(formatted_parts) if formatted_parts else paragraph.text
+            return result if result.strip() else paragraph.text
+            
+        except Exception as e:
+            print(f"Enhanced text formatting extraction failed: {e}")
+            return paragraph.text
+
+    def _extract_formatted_text(self, paragraph):
+        """Extract text with basic HTML formatting for ReportLab"""
+        try:
+            formatted_parts = []
+            
+            for run in paragraph.runs:
+                text = run.text
+                if not text:
+                    continue
+                
+                # Apply formatting
+                if run.bold:
+                    text = f"<b>{text}</b>"
+                if run.italic:
+                    text = f"<i>{text}</i>"
+                if run.underline:
+                    text = f"<u>{text}</u>"
+                
+                # Handle colors (basic support)
+                if hasattr(run.font, 'color') and run.font.color.rgb:
+                    rgb = run.font.color.rgb
+                    if rgb:
+                        # Convert to hex color
+                        hex_color = f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
+                        text = f'<font color="{hex_color}">{text}</font>'
+                
+                formatted_parts.append(text)
+            
+            return ''.join(formatted_parts) if formatted_parts else paragraph.text
+            
+        except Exception as e:
+            print(f"Text formatting extraction failed: {e}")
+            return paragraph.text
+    
+    def _convert_table_to_reportlab(self, table, custom_styles=None):
+        """Convert Word table to ReportLab table"""
+        try:
+            from reportlab.platypus import Table, TableStyle, Spacer
+            from reportlab.lib import colors
+            
+            # Extract table data
+            data = []
+            for row in table.rows:
+                row_data = []
+                for cell in row.cells:
+                    cell_text = cell.text.strip()
+                    row_data.append(cell_text)
+                data.append(row_data)
+            
+            if not data:
+                return Spacer(1, 1)
+            
+            # Create ReportLab table
+            t = Table(data)
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 12),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ]))
+            
+            return t
+            
+        except Exception as e:
+            print(f"Table conversion failed: {e}")
+            return Spacer(1, 1)
+    
+    def _generate_simple_pdf_fallback(self, docx_path: str, pdf_path: str) -> bool:
+        """Simplest possible PDF generation as ultimate fallback"""
+        try:
+            print("Using simple PDF fallback...")
+            from reportlab.lib.pagesizes import letter
+            from reportlab.platypus import SimpleDocTemplate, Paragraph
+            from reportlab.lib.styles import getSampleStyleSheet
+            
+            doc = Document(docx_path)
             pdf_doc = SimpleDocTemplate(pdf_path, pagesize=letter)
             styles = getSampleStyleSheet()
             story = []
             
-            # Convert paragraphs to simple text
             for paragraph in doc.paragraphs:
                 if paragraph.text.strip():
-                    # Simple text conversion - won't preserve all formatting but works
                     text = paragraph.text.strip()
                     para = Paragraph(text, styles['Normal'])
                     story.append(para)
-                    story.append(Spacer(1, 6))
             
-            # Build PDF
             pdf_doc.build(story)
-            print(f"Basic PDF generated successfully: {pdf_path}")
+            print(f"Simple PDF generated: {pdf_path}")
             return True
             
         except Exception as e:
-            print(f"Basic PDF generation failed: {str(e)}")
+            print(f"Even simple PDF generation failed: {e}")
             return False
     
     def process_merge(self, output_format: str, output_path: str) -> bool:
