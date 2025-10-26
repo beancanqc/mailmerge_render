@@ -82,13 +82,34 @@ def check_pdf_conversion_capabilities():
                 print("LibreOffice not found on Windows")
         else:
             # Linux/macOS
-            result = subprocess.run(['libreoffice', '--version'], 
-                                  capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
-                capabilities.append("LibreOffice")
-                print("LibreOffice available")
-            else:
-                print("LibreOffice not working")
+            try:
+                result = subprocess.run(['libreoffice', '--version'], 
+                                      capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    capabilities.append("LibreOffice")
+                    print("LibreOffice available")
+                    print(f"   Version: {result.stdout.strip()}")
+                else:
+                    print(f"LibreOffice command failed: {result.stderr}")
+                    
+                    # Try alternative commands for Render
+                    for alt_cmd in ['/usr/bin/libreoffice', '/usr/local/bin/libreoffice', 'soffice']:
+                        try:
+                            result = subprocess.run([alt_cmd, '--version'], 
+                                                  capture_output=True, text=True, timeout=5)
+                            if result.returncode == 0:
+                                capabilities.append("LibreOffice")
+                                print(f"LibreOffice available at: {alt_cmd}")
+                                print(f"   Version: {result.stdout.strip()}")
+                                break
+                        except:
+                            continue
+                    else:
+                        print("LibreOffice not found with any command")
+            except FileNotFoundError:
+                print("LibreOffice command not found")
+            except Exception as e:
+                print(f"LibreOffice check error: {e}")
     except:
         print("LibreOffice not available")
     
@@ -847,12 +868,18 @@ class MailMergeProcessor:
                     cmd = [libre_cmd, "--headless", "--convert-to", "pdf", 
                            "--outdir", output_dir, docx_path]
                 else:
-                    # Linux/macOS
+                    # Linux/macOS - Enhanced LibreOffice detection for Render
                     cmd = ["libreoffice", "--headless", "--convert-to", "pdf",
                            "--outdir", output_dir, docx_path]
                 
                 print(f"Running LibreOffice command: {' '.join(cmd)}")
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                
+                # Add environment variables for headless operation
+                import os
+                env = os.environ.copy()
+                env['DISPLAY'] = ':0'  # Required for headless operation on some systems
+                
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, env=env)
                 
                 if result.returncode == 0:
                     # LibreOffice creates PDF with same name as input file
@@ -1259,6 +1286,37 @@ if __name__ == '__main__':
             print(f"OK {module}: {description}")
         except ImportError as e:
             print(f"FAILED {module}: {e}")
+    
+    # Additional system checks for Render
+    print("\nSystem capabilities check:")
+    try:
+        import subprocess
+        # Check if LibreOffice is available
+        try:
+            result = subprocess.run(['libreoffice', '--version'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                print(f"OK LibreOffice: {result.stdout.strip()}")
+            else:
+                print(f"FAILED LibreOffice: Command failed")
+        except FileNotFoundError:
+            print("FAILED LibreOffice: Command not found")
+        except Exception as e:
+            print(f"FAILED LibreOffice: {e}")
+            
+        # Check available fonts (important for PDF generation)
+        try:
+            result = subprocess.run(['fc-list'], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                font_count = len(result.stdout.split('\n'))
+                print(f"OK Fonts: {font_count} fonts available")
+            else:
+                print("FAILED Fonts: fc-list not available")
+        except:
+            print("FAILED Fonts: Cannot check font availability")
+            
+    except Exception as e:
+        print(f"System check failed: {e}")
     
     print("="*50)
     
