@@ -506,6 +506,33 @@ class MailMergeProcessor:
         except Exception as e:
             print(f"Warning: Could not apply formatting: {e}")
 
+    def _apply_invoice_title_formatting(self, paragraph):
+        """Apply blue color and underline formatting to Invoice titles"""
+        try:
+            from docx.shared import RGBColor
+            
+            # Clear existing runs and create new formatted run
+            paragraph.clear()
+            run = paragraph.add_run('Invoice')
+            
+            # Apply blue color
+            run.font.color.rgb = RGBColor(0, 0, 255)  # Blue color
+            
+            # Apply underline
+            run.font.underline = True
+            
+            # Apply bold
+            run.font.bold = True
+            
+            # Center the paragraph
+            from docx.enum.text import WD_ALIGN_PARAGRAPH
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            
+            print(f"Applied blue underline formatting to Invoice title")
+            
+        except Exception as e:
+            print(f"Failed to apply Invoice formatting: {e}")
+
     def replace_merge_fields(self, doc: Document, data_row: Dict[str, Any]) -> Document:
         """Replace merge fields with actual data while preserving formatting"""
         
@@ -513,6 +540,10 @@ class MailMergeProcessor:
         for paragraph in doc.paragraphs:
             if '{{' in paragraph.text and '}}' in paragraph.text:
                 self.replace_merge_fields_advanced(paragraph, data_row)
+            
+            # Apply special formatting to Invoice titles
+            if paragraph.text.strip().lower() == 'invoice':
+                self._apply_invoice_title_formatting(paragraph)
         
         # Replace in tables
         for table in doc.tables:
@@ -521,6 +552,10 @@ class MailMergeProcessor:
                     for paragraph in cell.paragraphs:
                         if '{{' in paragraph.text and '}}' in paragraph.text:
                             self.replace_merge_fields_advanced(paragraph, data_row)
+                        
+                        # Apply special formatting to Invoice titles in tables too
+                        if paragraph.text.strip().lower() == 'invoice':
+                            self._apply_invoice_title_formatting(paragraph)
         
         # Replace in headers and footers
         for section in doc.sections:
@@ -961,6 +996,18 @@ class MailMergeProcessor:
             
             # Step 3: Convert HTML to PDF using pdfkit (wkhtmltopdf)
             try:
+                # Check if wkhtmltopdf is available
+                import subprocess
+                try:
+                    result = subprocess.run(['wkhtmltopdf', '--version'], 
+                                          capture_output=True, text=True, timeout=5)
+                    if result.returncode != 0:
+                        print("wkhtmltopdf not found - cannot use HTML conversion")
+                        return False
+                except:
+                    print("wkhtmltopdf not available on this system")
+                    return False
+                
                 # Configure pdfkit options for better rendering
                 options = {
                     'page-size': 'A4',
@@ -1136,13 +1183,14 @@ class MailMergeProcessor:
             # Create custom styles that match common Word styles
             custom_styles = {}
             
-            # Invoice title style (blue with underline)
+            # Invoice title style (blue with underline) - Enhanced
             custom_styles['invoice_title'] = ParagraphStyle(
                 'InvoiceTitle',
                 parent=styles['Title'],
                 fontSize=18,
                 textColor=colors.blue,
                 spaceAfter=12,
+                spaceBefore=12,
                 alignment=TA_CENTER,
                 fontName='Helvetica-Bold'
             )
