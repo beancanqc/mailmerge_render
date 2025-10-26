@@ -994,14 +994,17 @@ class MailMergeProcessor:
                 if paragraph.text.strip():
                     text = paragraph.text.strip()
                     
-                    # Check if this is an "Invoice" title and add page break
-                    if text.lower() == 'invoice':
+                    # Detect the style based on actual Word formatting
+                    detected_style = self._detect_title_from_formatting(paragraph)
+                    
+                    # Check if this is a title with special formatting (blue + underline)
+                    if detected_style == 'invoice_title':
                         if invoice_count > 0:
                             story.append(PageBreak())
                         invoice_count += 1
                         # Use special invoice style
                         style_to_use = custom_styles['invoice_title']
-                        # Add underline to invoice text
+                        # Add underline to text
                         formatted_text = f'<u>{text}</u>'
                     else:
                         # Detect style based on content and apply appropriate formatting
@@ -1029,11 +1032,49 @@ class MailMergeProcessor:
             # Fall back to even simpler generation
             return self._generate_simple_pdf_fallback(docx_path, pdf_path)
     
+    def _detect_title_from_formatting(self, paragraph):
+        """Detect if paragraph is a special title based on formatting (blue + underline)"""
+        try:
+            if not paragraph.runs:
+                return 'normal'
+            
+            first_run = paragraph.runs[0]
+            is_blue = False
+            is_underlined = False
+            
+            # Check for blue color
+            try:
+                if hasattr(first_run.font, 'color') and first_run.font.color:
+                    if hasattr(first_run.font.color, 'rgb') and first_run.font.color.rgb:
+                        r, g, b = first_run.font.color.rgb
+                        # Check if it's blue-ish
+                        if b > r and b > g and b > 100:
+                            is_blue = True
+                    elif hasattr(first_run.font.color, 'theme_color'):
+                        if first_run.font.color.theme_color in [3, 5]:
+                            is_blue = True
+            except:
+                pass
+            
+            # Check for underline
+            if first_run.underline:
+                is_underlined = True
+            
+            # If both blue and underlined, it's a special title
+            if is_blue and is_underlined:
+                return 'invoice_title'
+            
+            return 'normal'
+            
+        except:
+            return 'normal'
+
     def _detect_paragraph_style(self, paragraph, text, custom_styles, default_styles):
         """Detect appropriate style based on paragraph properties and content"""
         try:
-            # Check if it's an "Invoice" title - use special invoice style
-            if text.lower() == "invoice":
+            # First check if it has special formatting (blue + underline)
+            special_style = self._detect_title_from_formatting(paragraph)
+            if special_style == 'invoice_title':
                 return custom_styles['invoice_title']
             
             # Check Word style name if available
@@ -1143,7 +1184,7 @@ class MailMergeProcessor:
                 # Detect appropriate style
                 detected_style = self._detect_advanced_style(paragraph, formatting_info)
                 
-                # Add page break before each new invoice (except the first one)
+                # Add page break before each new special title (blue + underline)
                 if detected_style == 'invoice_title':
                     if invoice_count > 0:
                         story.append(PageBreak())
@@ -1199,27 +1240,77 @@ class MailMergeProcessor:
             return self._generate_enhanced_pdf(doc_path, pdf_path)
 
     def _detect_advanced_style(self, paragraph, formatting_info):
-        """Advanced style detection using document analysis"""
+        """Advanced style detection using document analysis and actual Word formatting"""
         try:
-            text = paragraph.text.strip().lower()
+            text = paragraph.text.strip()
             
-            # Check for "Invoice" specifically - should be blue and underlined
-            if text == 'invoice':
-                return 'invoice_title'
+            # Check the actual Word style name first
+            if hasattr(paragraph, 'style') and paragraph.style:
+                style_name = paragraph.style.name.lower()
+                
+                # Check for title-like styles
+                if 'title' in style_name:
+                    return 'title'
+                elif 'heading' in style_name:
+                    return 'heading'
             
-            # Check for common title patterns
-            if ('title' in paragraph.style.name.lower() if paragraph.style else False or
-                len(text) < 50 and text.isupper()):
-                return 'title'
-            
-            # Check for heading patterns
-            if (paragraph.style and 'heading' in paragraph.style.name.lower() or
-                len(text) < 100 and any(word in text for word in ['summary', 'details', 'information', 'description'])):
-                return 'heading'
+            # Check for formatting characteristics that indicate it's a title
+            if paragraph.runs:
+                first_run = paragraph.runs[0]
+                
+                # Check if text is blue and/or underlined (likely a styled title)
+                is_blue = False
+                is_underlined = False
+                is_large = False
+                is_bold = False
+                
+                try:
+                    # Check for blue color
+                    if hasattr(first_run.font, 'color') and first_run.font.color:
+                        if hasattr(first_run.font.color, 'rgb') and first_run.font.color.rgb:
+                            r, g, b = first_run.font.color.rgb
+                            # Check if it's blue-ish (more blue than other colors)
+                            if b > r and b > g and b > 100:
+                                is_blue = True
+                        elif hasattr(first_run.font.color, 'theme_color'):
+                            # Theme color 5 is often blue
+                            if first_run.font.color.theme_color in [3, 5]:  # Blue theme colors
+                                is_blue = True
+                except:
+                    pass
+                
+                # Check for underline
+                if first_run.underline:
+                    is_underlined = True
+                
+                # Check for bold
+                if first_run.bold:
+                    is_bold = True
+                
+                # Check for large font size
+                try:
+                    if hasattr(first_run.font, 'size') and first_run.font.size:
+                        if first_run.font.size.pt >= 16:
+                            is_large = True
+                except:
+                    pass
+                
+                # If it's blue AND underlined, it's likely a special title
+                if is_blue and is_underlined:
+                    return 'invoice_title'
+                
+                # If it's large and bold, it's likely a regular title
+                if is_large and is_bold:
+                    return 'title'
+                
+                # If it's just bold and short, it might be a heading
+                if is_bold and len(text) < 100:
+                    return 'heading'
             
             return 'normal'
             
-        except:
+        except Exception as e:
+            print(f"Style detection error: {e}")
             return 'normal'
 
     def _convert_table_enhanced(self, table, formatting_info):
