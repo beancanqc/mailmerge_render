@@ -24,7 +24,13 @@ from jinja2 import Template
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
-app.secret_key = 'your-secret-key-change-this'  # Add secret key for sessions
+
+# Configure session management for production
+app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-' + str(uuid.uuid4()))
+app.config['SESSION_TYPE'] = 'filesystem'
+app.config['SESSION_PERMANENT'] = False
+app.config['SESSION_USE_SIGNER'] = True
+app.config['SESSION_KEY_PREFIX'] = 'mailmerge:'
 
 # Configure folders
 UPLOAD_FOLDER = tempfile.mkdtemp()
@@ -724,12 +730,18 @@ def get_processor():
     """Get or create processor for current session"""
     if 'session_id' not in session:
         session['session_id'] = str(uuid.uuid4())
+        print(f"🆕 Created new session: {session['session_id']}")
     
     session_id = session['session_id']
+    print(f"🔄 Using session: {session_id}")
     
     if session_id not in processors:
         processors[session_id] = MailMergeProcessor(session_id)
+        print(f"🆕 Created new processor for session: {session_id}")
+    else:
+        print(f"♻️  Reusing existing processor for session: {session_id}")
     
+    print(f"📊 Total active processors: {len(processors)}")
     return processors[session_id]
 
 def cleanup_old_processors():
@@ -822,6 +834,9 @@ def upload_template():
         
         # Load template
         if processor.load_template(filepath):
+            print(f"✅ Template loaded successfully for session {processor.session_id}")
+            print(f"   Template path set to: {processor.template_path}")
+            print(f"   File exists: {os.path.exists(processor.template_path)}")
             return jsonify({
                 'success': True,
                 'message': f'Template uploaded successfully: {file.filename}',
@@ -829,6 +844,7 @@ def upload_template():
                 'filename': file.filename
             })
         else:
+            print(f"❌ Failed to load template for session {processor.session_id}")
             if os.path.exists(filepath):
                 os.remove(filepath)
             return jsonify({'success': False, 'error': 'Invalid template file'}), 400
@@ -895,16 +911,60 @@ def upload_data():
 
 @app.route('/check_status', methods=['GET'])
 def check_status():
-    """Check current upload status"""
+    """Check current upload status - with fallback file checking"""
     try:
         processor = get_processor()
-        return jsonify({
-            'template_loaded': processor.template_path is not None,
-            'data_loaded': processor.data_path is not None and len(processor.data) > 0,
+        
+        # Debug logging
+        print(f"🔍 Status check for session: {processor.session_id}")
+        print(f"   Template path: {processor.template_path}")
+        print(f"   Template exists: {processor.template_path and os.path.exists(processor.template_path) if processor.template_path else False}")
+        print(f"   Data loaded: {len(processor.data) if processor.data else 0} records")
+        
+        # Fallback: If processor doesn't have files, check for recent uploads
+        template_loaded = processor.template_path is not None and os.path.exists(processor.template_path) if processor.template_path else False
+        data_loaded = processor.data_path is not None and len(processor.data) > 0
+        
+        # If files not found in processor, check for recent uploads in the directory
+        if not template_loaded or not data_loaded:
+            print("🔍 Checking for recent uploads as fallback...")
+            if os.path.exists(app.config['UPLOAD_FOLDER']):
+                files = os.listdir(app.config['UPLOAD_FOLDER'])
+                print(f"   Found files: {files}")
+                
+                # Look for recent template files
+                if not template_loaded:
+                    for file in files:
+                        if file.startswith(f'template_{processor.session_id}') and file.endswith('.docx'):
+                            template_path = os.path.join(app.config['UPLOAD_FOLDER'], file)
+                            if processor.load_template(template_path):
+                                template_loaded = True
+                                print(f"✅ Recovered template: {file}")
+                                break
+                
+                # Look for recent data files  
+                if not data_loaded:
+                    for file in files:
+                        if file.startswith(f'data_{processor.session_id}') and file.endswith('.xlsx'):
+                            data_path = os.path.join(app.config['UPLOAD_FOLDER'], file)
+                            if processor.load_data(data_path):
+                                data_loaded = True
+                                print(f"✅ Recovered data: {file}")
+                                break
+        
+        result = {
+            'template_loaded': template_loaded,
+            'data_loaded': data_loaded,
             'template_path': processor.template_path,
-            'data_records': len(processor.data) if processor.data else 0
-        })
+            'data_records': len(processor.data) if processor.data else 0,
+            'session_id': processor.session_id  # Add for debugging
+        }
+        
+        print(f"   Returning status: {result}")
+        return jsonify(result)
+        
     except Exception as e:
+        print(f"❌ Status check error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/process_merge', methods=['POST'])
@@ -996,7 +1056,37 @@ def download_file(filename):
 @app.route('/health')
 def health_check():
     """Health check endpoint"""
-    return jsonify({'status': 'healthy', 'service': 'Mail Merge SaaS - Word & PDF Support'})
+    return jsonify({
+        'status': 'healthy', 
+        'service': 'Mail Merge SaaS - Word & PDF Support',
+        'active_sessions': len(processors),
+        'upload_folder': app.config['UPLOAD_FOLDER'],
+        'output_folder': OUTPUT_FOLDER
+    })
+
+@app.route('/debug')
+def debug_info():
+    """Debug endpoint to check application state"""
+    try:
+        processor = get_processor()
+        
+        # List files in upload directory
+        upload_files = []
+        if os.path.exists(app.config['UPLOAD_FOLDER']):
+            upload_files = os.listdir(app.config['UPLOAD_FOLDER'])
+        
+        return jsonify({
+            'session_id': processor.session_id,
+            'session_data': dict(session),
+            'processors_count': len(processors),
+            'processor_template_path': processor.template_path,
+            'processor_data_records': len(processor.data) if processor.data else 0,
+            'upload_folder': app.config['UPLOAD_FOLDER'],
+            'upload_files': upload_files,
+            'template_file_exists': os.path.exists(processor.template_path) if processor.template_path else False
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     # Development server
