@@ -1,4 +1,4 @@
-# Mail Merge SaaS Requirements - Lightweight & Fast
+# Mail Merge SaaS Requirements - Enhanced with Word automation
 # Install with: pip install -r requirements.txt
 
 # Core web framework
@@ -11,6 +11,9 @@ openpyxl==3.1.2
 
 # PDF conversion (pure Python - no external dependencies)
 mammoth==1.11.0
+
+# Windows COM automation for Word (Windows only - optional)
+pywin32==306
 
 # Production server
 gunicorn==21.2.0

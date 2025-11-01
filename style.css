@@ -30,8 +30,34 @@ body {
 .header .container {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     padding: 12px 20px;
+}
+
+/* Home button */
+.home-btn {
+    display: flex;
+    align-items: center;
+    text-decoration: none;
+    padding: 12px 20px;
+    border-radius: 8px;
+    transition: background-color 0.2s;
+}
+
+.home-btn:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+}
+
+.home-btn-icon {
+    width: 48px;
+    height: 48px;
+    margin-right: 12px;
+}
+
+.home-btn-text {
+    color: rgb(0, 0, 0);
+    font-size: 18px;
+    font-weight: 500;
 }
 
 /* Logo */
@@ -141,7 +167,7 @@ body {
 
 /* Hero section */
 .hero {
-    background-color: #f7fbff;
+    background-color: #f8f9fa;
     padding: 60px 0;
     text-align: center;
 }
@@ -501,6 +527,19 @@ body {
         flex-direction: column;
         gap: 16px;
         padding: 16px 20px;
+        align-items: center;
+    }
+
+    .home-btn {
+        order: -1;
+    }
+
+    .home-btn-text {
+        display: none;
+    }
+
+    .home-btn-icon {
+        margin-right: 0;
     }
 
     .nav {

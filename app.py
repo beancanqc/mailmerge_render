@@ -488,15 +488,57 @@ class MailMergeProcessor:
             print(f"Error creating multiple Word files: {str(e)}")
             return False
     
-    def convert_docx_to_html(self, docx_path: str) -> str:
-        """Convert a single docx file to HTML using mammoth"""
+    def convert_docx_to_pdf_with_word(self, docx_path: str, pdf_path: str) -> bool:
+        """Convert DOCX to PDF using Microsoft Word COM automation (Windows only)"""
         try:
-            with open(docx_path, "rb") as docx_file:
-                result = mammoth.convert_to_html(docx_file)
-                return result.value
+            import win32com.client
+            
+            print(f"Converting {docx_path} to PDF using Microsoft Word...")
+            
+            # Start Word application
+            word = win32com.client.Dispatch("Word.Application")
+            word.Visible = False  # Run Word in background
+            
+            # Open the document
+            doc = word.Documents.Open(docx_path)
+            
+            # Save as PDF
+            # wdFormatPDF = 17
+            doc.SaveAs2(pdf_path, FileFormat=17)
+            
+            # Close document and quit Word
+            doc.Close()
+            word.Quit()
+            
+            print(f"✅ Successfully converted to PDF: {pdf_path}")
+            return True
+            
+        except ImportError:
+            print("❌ pywin32 package not installed. Install with: pip install pywin32")
+            return False
         except Exception as e:
-            print(f"Error converting docx to HTML: {str(e)}")
-            return ""
+            print(f"❌ Error converting to PDF with Word: {str(e)}")
+            try:
+                # Try to clean up if something went wrong
+                if 'doc' in locals():
+                    doc.Close()
+                if 'word' in locals():
+                    word.Quit()
+            except:
+                pass
+            return False
+
+    def convert_docx_to_pdf_fallback(self, docx_path: str, pdf_path: str) -> bool:
+        """Fallback PDF conversion using HTML method"""
+        try:
+            print("Using fallback HTML-based PDF conversion...")
+            html_content = self.convert_docx_to_html(docx_path)
+            if html_content:
+                return self.convert_html_to_pdf(html_content, pdf_path)
+            return False
+        except Exception as e:
+            print(f"❌ Fallback PDF conversion failed: {str(e)}")
+            return False
     
     def convert_html_to_pdf(self, html_content: str, output_path: str) -> bool:
         """Convert HTML content to PDF using weasyprint"""
@@ -553,48 +595,62 @@ class MailMergeProcessor:
             print(f"Error converting HTML to PDF: {str(e)}")
             return False
     
+    def convert_docx_to_html(self, docx_path: str) -> str:
+        """Convert a single docx file to HTML using mammoth"""
+        try:
+            with open(docx_path, "rb") as docx_file:
+                result = mammoth.convert_to_html(docx_file)
+                return result.value
+        except Exception as e:
+            print(f"Error converting docx to HTML: {str(e)}")
+            return ""
+
     def generate_single_pdf(self, output_path: str) -> bool:
-        """Generate a single PDF document with all records"""
+        """Generate a single PDF document - Enhanced with Word-based conversion"""
         try:
             if not self.template_path or not self.data:
                 raise ValueError("Template and data must be loaded first")
             
-            all_html_content = []
+            print(f"Creating single PDF document with {len(self.data)} records...")
             
-            for index, row_data in enumerate(self.data):
-                # Load template and process merge fields
-                doc = Document(self.template_path)
-                processed_doc = self.replace_merge_fields(doc, row_data)
-                
-                # Save to temporary docx file
-                temp_docx = tempfile.NamedTemporaryFile(suffix='.docx', delete=False)
-                processed_doc.save(temp_docx.name)
-                temp_docx.close()
-                
-                # Convert to HTML
-                html_content = self.convert_docx_to_html(temp_docx.name)
-                
+            # First, create a Word document with proper pagination
+            temp_docx = tempfile.NamedTemporaryFile(suffix='.docx', delete=False)
+            temp_docx.close()
+            
+            # Use our improved Word generation method
+            if not self.generate_single_word(temp_docx.name):
+                print("❌ Failed to create Word document for PDF conversion")
+                return False
+            
+            print(f"✅ Created temporary Word document: {temp_docx.name}")
+            
+            # Try Word-based PDF conversion first (best quality)
+            if self.convert_docx_to_pdf_with_word(temp_docx.name, output_path):
                 # Clean up temp file
+                try:
+                    os.unlink(temp_docx.name)
+                except:
+                    pass
+                return True
+            
+            # Fall back to HTML-based conversion if Word is not available
+            print("🔄 Word not available, trying fallback HTML-based conversion...")
+            success = self.convert_docx_to_pdf_fallback(temp_docx.name, output_path)
+            
+            # Clean up temp file
+            try:
                 os.unlink(temp_docx.name)
+            except:
+                pass
                 
-                if html_content:
-                    # Add page break between records (except for last one)
-                    if index > 0:
-                        all_html_content.append('<div style="page-break-before: always;"></div>')
-                    all_html_content.append(html_content)
-            
-            # Combine all HTML content
-            combined_html = ''.join(all_html_content)
-            
-            # Convert to PDF
-            return self.convert_html_to_pdf(combined_html, output_path)
+            return success
             
         except Exception as e:
-            print(f"Error creating single PDF document: {str(e)}")
+            print(f"❌ Error creating single PDF document: {str(e)}")
             return False
     
     def generate_multiple_pdf(self, output_dir: str) -> bool:
-        """Generate multiple PDF documents (one per record)"""
+        """Generate multiple PDF documents (one per record) - Enhanced with Word conversion"""
         try:
             if not self.template_path or not self.data:
                 raise ValueError("Template and data must be loaded first")
@@ -602,6 +658,8 @@ class MailMergeProcessor:
             os.makedirs(output_dir, exist_ok=True)
             
             for index, row_data in enumerate(self.data):
+                print(f"Creating PDF {index+1} of {len(self.data)}...")
+                
                 # Load template and process merge fields
                 doc = Document(self.template_path)
                 processed_doc = self.replace_merge_fields(doc, row_data)
@@ -611,26 +669,30 @@ class MailMergeProcessor:
                 processed_doc.save(temp_docx.name)
                 temp_docx.close()
                 
-                # Convert to HTML
-                html_content = self.convert_docx_to_html(temp_docx.name)
+                # Generate PDF filename (use first field value or index)
+                first_value = list(row_data.values())[0] if row_data else f"record_{index+1}"
+                # Clean filename
+                safe_filename = re.sub(r'[<>:"/\\|?*]', '_', str(first_value))
+                pdf_output_path = os.path.join(output_dir, f"{safe_filename}.pdf")
+                
+                # Try Word-based conversion first, fall back to HTML if needed
+                success = (self.convert_docx_to_pdf_with_word(temp_docx.name, pdf_output_path) or 
+                          self.convert_docx_to_pdf_fallback(temp_docx.name, pdf_output_path))
                 
                 # Clean up temp file
-                os.unlink(temp_docx.name)
+                try:
+                    os.unlink(temp_docx.name)
+                except:
+                    pass
                 
-                if html_content:
-                    # Generate PDF filename (use first field value or index)
-                    first_value = list(row_data.values())[0] if row_data else f"record_{index+1}"
-                    # Clean filename
-                    safe_filename = re.sub(r'[<>:"/\\|?*]', '_', str(first_value))
-                    pdf_output_path = os.path.join(output_dir, f"{safe_filename}.pdf")
-                    
-                    # Convert to PDF
-                    self.convert_html_to_pdf(html_content, pdf_output_path)
+                if not success:
+                    print(f"❌ Failed to create PDF for record {index+1}")
             
+            print(f"✅ Created {len(self.data)} PDF files using Word conversion")
             return True
             
         except Exception as e:
-            print(f"Error creating multiple PDF files: {str(e)}")
+            print(f"❌ Error creating multiple PDF files: {str(e)}")
             return False
     
     def process_merge(self, output_format: str, output_path: str) -> bool:
