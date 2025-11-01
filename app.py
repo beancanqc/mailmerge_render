@@ -358,34 +358,86 @@ class MailMergeProcessor:
                         # Find corresponding table in processed_doc
                         for table in processed_doc.tables:
                             if table._element == element:
+                                # Create new table with same dimensions
                                 new_table = final_doc.add_table(rows=len(table.rows), cols=len(table.columns))
                                 
-                                # Copy table style if available
+                                # Copy table-level formatting
                                 try:
                                     if table.style:
                                         new_table.style = table.style
-                                except:
-                                    pass
-                                
-                                # Copy table content with formatting
-                                for row_idx, row in enumerate(table.rows):
-                                    for col_idx, cell in enumerate(row.cells):
-                                        new_cell = new_table.cell(row_idx, col_idx)
-                                        new_cell.text = ""  # Clear default text
+                                    
+                                    # Copy table alignment
+                                    if hasattr(table, 'alignment'):
+                                        new_table.alignment = table.alignment
                                         
-                                        for para in cell.paragraphs:
+                                except Exception as table_style_error:
+                                    print(f"   ⚠️  Table style copy failed: {table_style_error}")
+                                
+                                # Copy column widths to maintain table structure
+                                try:
+                                    for col_idx in range(len(table.columns)):
+                                        if col_idx < len(new_table.columns):
+                                            original_width = table.columns[col_idx].width
+                                            if original_width:
+                                                new_table.columns[col_idx].width = original_width
+                                except Exception as width_error:
+                                    print(f"   ⚠️  Column width copy failed: {width_error}")
+                                
+                                # Copy row heights and content
+                                for row_idx, row in enumerate(table.rows):
+                                    new_row = new_table.rows[row_idx]
+                                    
+                                    # Copy row height if available
+                                    try:
+                                        if hasattr(row, 'height') and row.height:
+                                            new_row.height = row.height
+                                    except:
+                                        pass
+                                    
+                                    # Copy cell content and formatting
+                                    for col_idx, cell in enumerate(row.cells):
+                                        new_cell = new_row.cells[col_idx]
+                                        
+                                        # Copy cell background color and borders
+                                        try:
+                                            # Copy cell shading (background color)
+                                            if hasattr(cell._element, 'tcPr') and cell._element.tcPr is not None:
+                                                tc_pr = cell._element.tcPr
+                                                if hasattr(new_cell._element, 'tcPr'):
+                                                    # Clone the cell properties
+                                                    import copy
+                                                    new_cell._element.tcPr = copy.deepcopy(tc_pr)
+                                                else:
+                                                    new_cell._element.append(copy.deepcopy(tc_pr))
+                                        except Exception as cell_format_error:
+                                            print(f"   ⚠️  Cell formatting copy failed: {cell_format_error}")
+                                        
+                                        # Clear default content and copy actual content
+                                        new_cell.text = ""
+                                        
+                                        # Copy paragraphs
+                                        for para_idx, para in enumerate(cell.paragraphs):
                                             if para.text.strip() or len(para.runs) > 0:
-                                                new_para = new_cell.add_paragraph()
+                                                if para_idx == 0:
+                                                    # Use the existing first paragraph
+                                                    new_para = new_cell.paragraphs[0]
+                                                else:
+                                                    # Add additional paragraphs
+                                                    new_para = new_cell.add_paragraph()
                                                 
-                                                # Copy paragraph alignment
+                                                # Copy paragraph formatting
                                                 try:
                                                     new_para.alignment = para.alignment
+                                                    if hasattr(para, 'style') and para.style:
+                                                        new_para.style = para.style
                                                 except:
                                                     pass
                                                 
+                                                # Copy runs with all formatting
                                                 for run in para.runs:
                                                     new_run = new_para.add_run(run.text)
                                                     try:
+                                                        # Copy all text formatting
                                                         if run.bold is not None:
                                                             new_run.bold = run.bold
                                                         if run.italic is not None:
@@ -396,8 +448,12 @@ class MailMergeProcessor:
                                                             new_run.font.size = run.font.size
                                                         if run.font.name:
                                                             new_run.font.name = run.font.name
-                                                    except:
-                                                        pass
+                                                        if run.font.color.rgb:
+                                                            new_run.font.color.rgb = run.font.color.rgb
+                                                    except Exception as run_format_error:
+                                                        pass  # Continue even if some formatting fails
+                                
+                                print(f"   ✅ Copied table with enhanced formatting preservation")
                                 break
             
             # Save the final document
