@@ -400,17 +400,74 @@ class MailMergeProcessor:
                                         
                                         # Copy cell background color and borders
                                         try:
-                                            # Copy cell shading (background color)
-                                            if hasattr(cell._element, 'tcPr') and cell._element.tcPr is not None:
-                                                tc_pr = cell._element.tcPr
-                                                if hasattr(new_cell._element, 'tcPr'):
-                                                    # Clone the cell properties
-                                                    import copy
-                                                    new_cell._element.tcPr = copy.deepcopy(tc_pr)
-                                                else:
-                                                    new_cell._element.append(copy.deepcopy(tc_pr))
+                                            # Direct approach to copy cell shading (background color)
+                                            from docx.oxml import OxmlElement, ns
+                                            from docx.oxml.ns import qn
+                                            
+                                            # Get original cell properties
+                                            original_tc_pr = cell._element.tcPr
+                                            if original_tc_pr is not None:
+                                                # Get or create cell properties for new cell
+                                                new_tc_pr = new_cell._element.tcPr
+                                                if new_tc_pr is None:
+                                                    new_tc_pr = OxmlElement('w:tcPr')
+                                                    new_cell._element.insert(0, new_tc_pr)
+                                                
+                                                # Copy shading (background color)
+                                                original_shd = original_tc_pr.find(qn('w:shd'))
+                                                if original_shd is not None:
+                                                    # Remove existing shading if any
+                                                    existing_shd = new_tc_pr.find(qn('w:shd'))
+                                                    if existing_shd is not None:
+                                                        new_tc_pr.remove(existing_shd)
+                                                    
+                                                    # Create new shading element
+                                                    new_shd = OxmlElement('w:shd')
+                                                    # Copy all shading attributes
+                                                    for attr_name, attr_value in original_shd.attrib.items():
+                                                        new_shd.set(attr_name, attr_value)
+                                                    new_tc_pr.append(new_shd)
+                                                    print(f"     🎨 Copied cell shading: {original_shd.attrib}")
+                                                
+                                                # Copy table cell borders
+                                                original_borders = original_tc_pr.find(qn('w:tcBorders'))
+                                                if original_borders is not None:
+                                                    # Remove existing borders if any
+                                                    existing_borders = new_tc_pr.find(qn('w:tcBorders'))
+                                                    if existing_borders is not None:
+                                                        new_tc_pr.remove(existing_borders)
+                                                    
+                                                    # Create new borders element
+                                                    new_borders = OxmlElement('w:tcBorders')
+                                                    # Copy all border elements
+                                                    for border_element in original_borders:
+                                                        new_border = OxmlElement(border_element.tag)
+                                                        for attr_name, attr_value in border_element.attrib.items():
+                                                            new_border.set(attr_name, attr_value)
+                                                        new_borders.append(new_border)
+                                                    new_tc_pr.append(new_borders)
+                                                
+                                                # Copy vertical alignment
+                                                original_valign = original_tc_pr.find(qn('w:vAlign'))
+                                                if original_valign is not None:
+                                                    existing_valign = new_tc_pr.find(qn('w:vAlign'))
+                                                    if existing_valign is not None:
+                                                        new_tc_pr.remove(existing_valign)
+                                                    
+                                                    new_valign = OxmlElement('w:vAlign')
+                                                    for attr_name, attr_value in original_valign.attrib.items():
+                                                        new_valign.set(attr_name, attr_value)
+                                                    new_tc_pr.append(new_valign)
+                                        
                                         except Exception as cell_format_error:
                                             print(f"   ⚠️  Cell formatting copy failed: {cell_format_error}")
+                                            # Fallback to basic copy
+                                            try:
+                                                if hasattr(cell._element, 'tcPr') and cell._element.tcPr is not None:
+                                                    import copy
+                                                    new_cell._element.tcPr = copy.deepcopy(cell._element.tcPr)
+                                            except:
+                                                pass
                                         
                                         # Clear default content and copy actual content
                                         new_cell.text = ""
