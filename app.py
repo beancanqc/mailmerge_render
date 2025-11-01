@@ -514,7 +514,7 @@ class MailMergeProcessor:
             return True
             
         except ImportError:
-            print("❌ pywin32 package not installed. Install with: pip install pywin32")
+            print("ℹ️  Microsoft Word not available (Linux environment). Using fallback PDF conversion...")
             return False
         except Exception as e:
             print(f"❌ Error converting to PDF with Word: {str(e)}")
