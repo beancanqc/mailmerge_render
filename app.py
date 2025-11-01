@@ -316,69 +316,93 @@ class MailMergeProcessor:
                 from docx.enum.section import WD_SECTION_START
                 new_section = final_doc.add_section(WD_SECTION_START.NEW_PAGE)
                 
-                # Copy all content from processed template to the new section
-                # Get the section element and body
-                section_element = new_section._sectPr
-                body_element = final_doc._body._body
-                
-                # Copy all paragraphs from processed document
-                for para in processed_doc.paragraphs:
-                    new_para = final_doc.add_paragraph()
+                # Copy all elements from processed document in their original order
+                # This preserves the document structure with tables in correct positions
+                for element in processed_doc.element.body:
+                    if element.tag.endswith('p'):  # Paragraph
+                        # Find corresponding paragraph in processed_doc
+                        for para in processed_doc.paragraphs:
+                            if para._element == element:
+                                new_para = final_doc.add_paragraph()
+                                
+                                # Copy paragraph-level formatting
+                                try:
+                                    new_para.style = para.style
+                                    new_para.alignment = para.alignment
+                                except:
+                                    pass
+                                
+                                # Copy all runs with their formatting
+                                for run in para.runs:
+                                    new_run = new_para.add_run(run.text)
+                                    
+                                    # Copy comprehensive formatting
+                                    try:
+                                        if run.bold is not None:
+                                            new_run.bold = run.bold
+                                        if run.italic is not None:
+                                            new_run.italic = run.italic
+                                        if run.underline is not None:
+                                            new_run.underline = run.underline
+                                        if run.font.size:
+                                            new_run.font.size = run.font.size
+                                        if run.font.name:
+                                            new_run.font.name = run.font.name
+                                        if run.font.color.rgb:
+                                            new_run.font.color.rgb = run.font.color.rgb
+                                    except:
+                                        pass
+                                break
                     
-                    # Copy paragraph-level formatting
-                    try:
-                        new_para.style = para.style
-                        new_para.alignment = para.alignment
-                    except:
-                        pass
-                    
-                    # Copy all runs with their formatting
-                    for run in para.runs:
-                        new_run = new_para.add_run(run.text)
-                        
-                        # Copy comprehensive formatting
-                        try:
-                            if run.bold is not None:
-                                new_run.bold = run.bold
-                            if run.italic is not None:
-                                new_run.italic = run.italic
-                            if run.underline is not None:
-                                new_run.underline = run.underline
-                            if run.font.size:
-                                new_run.font.size = run.font.size
-                            if run.font.name:
-                                new_run.font.name = run.font.name
-                            if run.font.color.rgb:
-                                new_run.font.color.rgb = run.font.color.rgb
-                        except:
-                            pass
-                
-                # Copy tables from processed document
-                for table in processed_doc.tables:
-                    new_table = final_doc.add_table(rows=len(table.rows), cols=len(table.columns))
-                    
-                    # Copy table content with formatting
-                    for row_idx, row in enumerate(table.rows):
-                        for col_idx, cell in enumerate(row.cells):
-                            new_cell = new_table.cell(row_idx, col_idx)
-                            new_cell.text = ""  # Clear default text
-                            
-                            for para in cell.paragraphs:
-                                if para.text.strip() or len(para.runs) > 0:
-                                    new_para = new_cell.add_paragraph()
-                                    for run in para.runs:
-                                        new_run = new_para.add_run(run.text)
-                                        try:
-                                            if run.bold is not None:
-                                                new_run.bold = run.bold
-                                            if run.italic is not None:
-                                                new_run.italic = run.italic
-                                        except:
-                                            pass
+                    elif element.tag.endswith('tbl'):  # Table
+                        # Find corresponding table in processed_doc
+                        for table in processed_doc.tables:
+                            if table._element == element:
+                                new_table = final_doc.add_table(rows=len(table.rows), cols=len(table.columns))
+                                
+                                # Copy table style if available
+                                try:
+                                    if table.style:
+                                        new_table.style = table.style
+                                except:
+                                    pass
+                                
+                                # Copy table content with formatting
+                                for row_idx, row in enumerate(table.rows):
+                                    for col_idx, cell in enumerate(row.cells):
+                                        new_cell = new_table.cell(row_idx, col_idx)
+                                        new_cell.text = ""  # Clear default text
+                                        
+                                        for para in cell.paragraphs:
+                                            if para.text.strip() or len(para.runs) > 0:
+                                                new_para = new_cell.add_paragraph()
+                                                
+                                                # Copy paragraph alignment
+                                                try:
+                                                    new_para.alignment = para.alignment
+                                                except:
+                                                    pass
+                                                
+                                                for run in para.runs:
+                                                    new_run = new_para.add_run(run.text)
+                                                    try:
+                                                        if run.bold is not None:
+                                                            new_run.bold = run.bold
+                                                        if run.italic is not None:
+                                                            new_run.italic = run.italic
+                                                        if run.underline is not None:
+                                                            new_run.underline = run.underline
+                                                        if run.font.size:
+                                                            new_run.font.size = run.font.size
+                                                        if run.font.name:
+                                                            new_run.font.name = run.font.name
+                                                    except:
+                                                        pass
+                                break
             
             # Save the final document
             final_doc.save(output_path)
-            print(f"✅ Successfully created single Word document using section breaks")
+            print(f"✅ Successfully created single Word document with proper table positioning")
             return True
             
         except Exception as e:
@@ -471,10 +495,16 @@ class MailMergeProcessor:
             if not self.template_path or not self.data:
                 raise ValueError("Template and data must be loaded first")
             
+            print(f"📁 Creating directory: {output_dir}")
             os.makedirs(output_dir, exist_ok=True)
             
+            print(f"📄 Generating {len(self.data)} individual Word documents...")
+            
+            generated_files = []
             for index, row_data in enumerate(self.data):
-                # Load template
+                print(f"   Processing record {index+1}/{len(self.data)}...")
+                
+                # Load fresh template for each document
                 doc = Document(self.template_path)
                 
                 # Replace merge fields
@@ -482,16 +512,34 @@ class MailMergeProcessor:
                 
                 # Generate filename (use first field value or index)
                 first_value = list(row_data.values())[0] if row_data else f"record_{index+1}"
-                # Clean filename
+                # Clean filename - remove invalid characters
                 safe_filename = re.sub(r'[<>:"/\\|?*]', '_', str(first_value))
+                safe_filename = safe_filename.strip()[:50]  # Limit length
+                if not safe_filename:
+                    safe_filename = f"record_{index+1}"
+                
                 output_path = os.path.join(output_dir, f"{safe_filename}.docx")
                 
+                # Handle duplicate filenames
+                counter = 1
+                original_path = output_path
+                while os.path.exists(output_path):
+                    base_name = os.path.splitext(original_path)[0]
+                    output_path = f"{base_name}_{counter}.docx"
+                    counter += 1
+                
+                # Save the document
                 processed_doc.save(output_path)
+                generated_files.append(output_path)
+                print(f"   ✅ Saved: {os.path.basename(output_path)}")
             
+            print(f"🎉 Successfully generated {len(generated_files)} Word documents")
             return True
             
         except Exception as e:
-            print(f"Error creating multiple Word files: {str(e)}")
+            print(f"❌ Error creating multiple Word files: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def convert_docx_to_pdf_with_word(self, docx_path: str, pdf_path: str) -> bool:
