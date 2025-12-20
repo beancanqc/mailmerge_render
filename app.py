@@ -745,7 +745,7 @@ class MailMergeProcessor:
             except ImportError as e:
                 print(f"❌ WeasyPrint not available: {e}")
                 print("💡 Try installing: pip install weasyprint")
-                return False
+                return self.convert_html_to_pdf_alternative(html_content, output_path)
             
             # Add enhanced CSS for better PDF formatting
             html_with_css = f"""
@@ -821,12 +821,129 @@ class MailMergeProcessor:
                 print(f"❌ WeasyPrint PDF generation error: {pdf_error}")
                 import traceback
                 traceback.print_exc()
-                return False
+                print("🔄 Trying alternative PDF generation method...")
+                return self.convert_html_to_pdf_alternative(html_content, output_path)
                 
         except Exception as e:
             print(f"❌ Error in HTML to PDF conversion: {str(e)}")
             import traceback
             traceback.print_exc()
+            return self.convert_html_to_pdf_alternative(html_content, output_path)
+    
+    def convert_html_to_pdf_alternative(self, html_content: str, output_path: str) -> bool:
+        """Alternative PDF generation using reportlab as fallback"""
+        try:
+            print("🔄 Using alternative PDF generation with reportlab...")
+            
+            # Try importing reportlab
+            try:
+                from reportlab.pdfgen import canvas
+                from reportlab.lib.pagesizes import letter, A4
+                from reportlab.lib.styles import getSampleStyleSheet
+                from reportlab.platypus import SimpleDocTemplate, Paragraph
+                from io import StringIO
+                import html
+                print("✅ Reportlab is available")
+            except ImportError:
+                print("❌ Reportlab not available. Installing basic text-only PDF fallback...")
+                return self.create_basic_text_pdf(html_content, output_path)
+            
+            # Create PDF with reportlab
+            doc = SimpleDocTemplate(output_path, pagesize=A4)
+            styles = getSampleStyleSheet()
+            story = []
+            
+            # Convert HTML to simple text and create paragraphs
+            # Remove HTML tags for basic text conversion
+            import re
+            text_content = re.sub(r'<[^>]+>', ' ', html_content)
+            text_content = html.unescape(text_content)
+            
+            # Split into paragraphs and add to story
+            paragraphs = text_content.split('\n\n')
+            for para_text in paragraphs:
+                if para_text.strip():
+                    para = Paragraph(para_text.strip(), styles['Normal'])
+                    story.append(para)
+            
+            # Build PDF
+            doc.build(story)
+            
+            # Verify PDF was created
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                print(f"✅ Alternative PDF created successfully: {output_path} ({os.path.getsize(output_path)} bytes)")
+                return True
+            else:
+                print("❌ Alternative PDF creation failed")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Alternative PDF generation failed: {str(e)}")
+            return self.create_basic_text_pdf(html_content, output_path)
+    
+    def create_basic_text_pdf(self, html_content: str, output_path: str) -> bool:
+        """Last resort: create a basic text-only PDF"""
+        try:
+            print("🔄 Creating basic text-only PDF as last resort...")
+            
+            from reportlab.pdfgen import canvas
+            from reportlab.lib.pagesizes import letter
+            import re
+            import html
+            
+            # Convert HTML to plain text
+            text_content = re.sub(r'<[^>]+>', ' ', html_content)
+            text_content = html.unescape(text_content)
+            text_content = ' '.join(text_content.split())  # Clean up whitespace
+            
+            # Create PDF
+            c = canvas.Canvas(output_path, pagesize=letter)
+            width, height = letter
+            
+            # Set up text
+            c.setFont("Helvetica", 12)
+            y_position = height - 72  # Start 1 inch from top
+            line_height = 14
+            
+            # Split text into lines that fit the page width
+            words = text_content.split()
+            lines = []
+            current_line = ""
+            
+            for word in words:
+                test_line = current_line + " " + word if current_line else word
+                if c.stringWidth(test_line, "Helvetica", 12) < (width - 144):  # Leave 1 inch margins
+                    current_line = test_line
+                else:
+                    if current_line:
+                        lines.append(current_line)
+                    current_line = word
+            
+            if current_line:
+                lines.append(current_line)
+            
+            # Write lines to PDF
+            for line in lines:
+                if y_position < 72:  # Start new page if needed
+                    c.showPage()
+                    c.setFont("Helvetica", 12)
+                    y_position = height - 72
+                
+                c.drawString(72, y_position, line)
+                y_position -= line_height
+            
+            c.save()
+            
+            # Verify PDF was created
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                print(f"✅ Basic PDF created successfully: {output_path} ({os.path.getsize(output_path)} bytes)")
+                return True
+            else:
+                print("❌ Basic PDF creation failed")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Basic PDF creation failed: {str(e)}")
             return False
     
     def convert_docx_to_html(self, docx_path: str) -> str:
