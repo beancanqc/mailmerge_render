@@ -875,6 +875,12 @@ class MailMergeProcessor:
                 print("🔄 Trying alternative PDF generation method...")
                 return self.convert_html_to_pdf_alternative(html_content, output_path)
                 
+        except Exception as e:
+            print(f"❌ HTML to PDF conversion failed: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return False
+                
     def convert_docx_to_pdf_html_fallback(self, docx_path: str, pdf_path: str) -> bool:
         """HTML fallback PDF conversion (formatting may be lost) - use as last resort"""
         try:
