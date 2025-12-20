@@ -19,8 +19,6 @@ import openpyxl
 import re
 from typing import List, Dict, Any, Optional
 import mammoth
-import PyPDF2
-from io import BytesIO
 
 from jinja2 import Template
 
@@ -41,7 +39,6 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 ALLOWED_TEMPLATE_EXTENSIONS = {'docx'}
 ALLOWED_DATA_EXTENSIONS = {'xlsx'}
-ALLOWED_PDF_EXTENSIONS = {'pdf'}
 
 def allowed_file(filename, allowed_extensions):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed_extensions
@@ -52,6 +49,7 @@ class MailMergeProcessor:
         self.template_path: Optional[str] = None
         self.data_path: Optional[str] = None
         self.data: List[Dict[str, Any]] = []
+        self.first_column_header: Optional[str] = None
         
     def cleanup(self):
         """Clean up temporary files"""
@@ -71,6 +69,7 @@ class MailMergeProcessor:
         self.template_path = None
         self.data_path = None
         self.data = []
+        self.first_column_header = None
         
     def load_template(self, template_path: str) -> bool:
         """Load and validate Word template file"""
@@ -122,6 +121,9 @@ class MailMergeProcessor:
             headers = []
             for cell in sheet[1]:
                 headers.append(str(cell.value) if cell.value is not None else "")
+            
+            # Store first column header for filename generation
+            self.first_column_header = headers[0] if headers else None
             
             self.data = []
             for row in sheet.iter_rows(min_row=2, values_only=True):
@@ -626,8 +628,11 @@ class MailMergeProcessor:
                 # Replace merge fields
                 processed_doc = self.replace_merge_fields(doc, row_data)
                 
-                # Generate filename (use first field value or index)
-                first_value = list(row_data.values())[0] if row_data else f"record_{index+1}"
+                # Generate filename (use first column value or index)
+                if self.first_column_header and self.first_column_header in row_data:
+                    first_value = row_data[self.first_column_header]
+                else:
+                    first_value = list(row_data.values())[0] if row_data else f"record_{index+1}"
                 # Clean filename - remove invalid characters
                 safe_filename = re.sub(r'[<>:"/\\|?*]', '_', str(first_value))
                 safe_filename = safe_filename.strip()[:50]  # Limit length
@@ -665,6 +670,10 @@ class MailMergeProcessor:
             
             print(f"Converting {docx_path} to PDF using Microsoft Word...")
             
+            # Convert paths to absolute paths
+            docx_path = os.path.abspath(docx_path)
+            pdf_path = os.path.abspath(pdf_path)
+            
             # Start Word application
             word = win32com.client.Dispatch("Word.Application")
             word.Visible = False  # Run Word in background
@@ -672,8 +681,7 @@ class MailMergeProcessor:
             # Open the document
             doc = word.Documents.Open(docx_path)
             
-            # Save as PDF
-            # wdFormatPDF = 17
+            # Save as PDF (wdFormatPDF = 17)
             doc.SaveAs2(pdf_path, FileFormat=17)
             
             # Close document and quit Word
@@ -684,7 +692,7 @@ class MailMergeProcessor:
             return True
             
         except ImportError:
-            print("ℹ️  Microsoft Word not available (Linux environment). Using fallback PDF conversion...")
+            print("ℹ️  Microsoft Word not available (non-Windows environment). Using fallback PDF conversion...")
             return False
         except Exception as e:
             print(f"❌ Error converting to PDF with Word: {str(e)}")
@@ -839,8 +847,11 @@ class MailMergeProcessor:
                 processed_doc.save(temp_docx.name)
                 temp_docx.close()
                 
-                # Generate PDF filename (use first field value or index)
-                first_value = list(row_data.values())[0] if row_data else f"record_{index+1}"
+                # Generate PDF filename (use first column value or index)
+                if self.first_column_header and self.first_column_header in row_data:
+                    first_value = row_data[self.first_column_header]
+                else:
+                    first_value = list(row_data.values())[0] if row_data else f"record_{index+1}"
                 # Clean filename
                 safe_filename = re.sub(r'[<>:"/\\|?*]', '_', str(first_value))
                 pdf_output_path = os.path.join(output_dir, f"{safe_filename}.pdf")
@@ -887,240 +898,8 @@ class MailMergeProcessor:
             print(f"Error processing mail merge: {str(e)}")
             return False
 
-class PDFCombineProcessor:
-    def __init__(self, session_id=None):
-        self.session_id = session_id or str(uuid.uuid4())
-        self.pdf_files: List[Dict[str, Any]] = []  # List of {path, filename, pages, size}
-        self.max_files = 20  # Generous limit
-        self.max_total_size = 200 * 1024 * 1024  # 200MB
-        self.max_file_size = 50 * 1024 * 1024  # 50MB per file
-        
-    def cleanup(self):
-        """Clean up temporary PDF files"""
-        try:
-            for pdf_info in self.pdf_files:
-                if 'path' in pdf_info and os.path.exists(pdf_info['path']):
-                    os.remove(pdf_info['path'])
-                    print(f"Cleaned up PDF: {pdf_info['path']}")
-        except Exception as e:
-            print(f"PDF cleanup error: {str(e)}")
-        
-        # Reset state
-        self.pdf_files = []
-        
-    def validate_pdf(self, file_path: str) -> Dict[str, Any]:
-        """Validate PDF file and extract metadata"""
-        try:
-            if not os.path.exists(file_path):
-                raise FileNotFoundError(f"PDF file not found: {file_path}")
-            
-            # Check file size
-            file_size = os.path.getsize(file_path)
-            if file_size > self.max_file_size:
-                raise ValueError(f"File too large: {file_size / (1024*1024):.1f}MB (max: {self.max_file_size / (1024*1024)}MB)")
-            
-            # Try to open and read PDF
-            with open(file_path, 'rb') as file:
-                pdf_reader = PyPDF2.PdfReader(file)
-                
-                # Check if PDF is encrypted
-                if pdf_reader.is_encrypted:
-                    raise ValueError("Password-protected PDFs are not supported")
-                
-                # Get page count
-                page_count = len(pdf_reader.pages)
-                if page_count == 0:
-                    raise ValueError("PDF file has no pages")
-                
-                # Extract basic metadata
-                metadata = pdf_reader.metadata
-                title = metadata.get('/Title', '') if metadata else ''
-                
-                return {
-                    'valid': True,
-                    'pages': page_count,
-                    'size': file_size,
-                    'title': str(title) if title else '',
-                    'encrypted': False
-                }
-                
-        except Exception as e:
-            print(f"PDF validation error for {file_path}: {str(e)}")
-            return {
-                'valid': False,
-                'error': str(e),
-                'pages': 0,
-                'size': 0
-            }
-    
-    def add_pdf_file(self, file_path: str, filename: str) -> bool:
-        """Add a PDF file to the combination queue"""
-        try:
-            # Check file count limit
-            if len(self.pdf_files) >= self.max_files:
-                raise ValueError(f"Maximum {self.max_files} files allowed")
-            
-            # Validate PDF
-            validation_result = self.validate_pdf(file_path)
-            if not validation_result['valid']:
-                raise ValueError(validation_result.get('error', 'Invalid PDF file'))
-            
-            # Check total size limit
-            current_total_size = sum(pdf['size'] for pdf in self.pdf_files)
-            if current_total_size + validation_result['size'] > self.max_total_size:
-                raise ValueError(f"Total size would exceed {self.max_total_size / (1024*1024):.0f}MB limit")
-            
-            # Add to queue
-            pdf_info = {
-                'path': file_path,
-                'filename': filename,
-                'pages': validation_result['pages'],
-                'size': validation_result['size'],
-                'title': validation_result.get('title', ''),
-                'index': len(self.pdf_files)
-            }
-            
-            self.pdf_files.append(pdf_info)
-            print(f"Added PDF: {filename} ({validation_result['pages']} pages, {validation_result['size']/1024:.1f}KB)")
-            return True
-            
-        except Exception as e:
-            print(f"Error adding PDF file: {str(e)}")
-            # Clean up file if it was uploaded but couldn't be added
-            if os.path.exists(file_path):
-                try:
-                    os.remove(file_path)
-                except:
-                    pass
-            return False
-    
-    def remove_pdf_file(self, index: int) -> bool:
-        """Remove a PDF file from the combination queue"""
-        try:
-            if 0 <= index < len(self.pdf_files):
-                pdf_info = self.pdf_files.pop(index)
-                
-                # Clean up file
-                if os.path.exists(pdf_info['path']):
-                    os.remove(pdf_info['path'])
-                
-                # Update indices for remaining files
-                for i, pdf in enumerate(self.pdf_files):
-                    pdf['index'] = i
-                
-                print(f"Removed PDF: {pdf_info['filename']}")
-                return True
-            return False
-            
-        except Exception as e:
-            print(f"Error removing PDF file: {str(e)}")
-            return False
-    
-    def reorder_pdf_files(self, new_order: List[int]) -> bool:
-        """Reorder PDF files according to new index list"""
-        try:
-            if len(new_order) != len(self.pdf_files):
-                raise ValueError("New order list length doesn't match current files")
-            
-            if set(new_order) != set(range(len(self.pdf_files))):
-                raise ValueError("Invalid order indices")
-            
-            # Reorder the files
-            reordered_files = []
-            for new_index in new_order:
-                pdf_info = self.pdf_files[new_index].copy()
-                pdf_info['index'] = len(reordered_files)
-                reordered_files.append(pdf_info)
-            
-            self.pdf_files = reordered_files
-            print(f"Reordered {len(self.pdf_files)} PDF files")
-            return True
-            
-        except Exception as e:
-            print(f"Error reordering PDF files: {str(e)}")
-            return False
-    
-    def combine_pdfs(self, output_path: str) -> bool:
-        """Combine all PDFs into a single output file"""
-        try:
-            if not self.pdf_files:
-                raise ValueError("No PDF files to combine")
-            
-            print(f"Combining {len(self.pdf_files)} PDF files...")
-            
-            # Create PDF merger
-            pdf_writer = PyPDF2.PdfWriter()
-            
-            # Track total pages for progress
-            total_pages = sum(pdf['pages'] for pdf in self.pdf_files)
-            current_page = 0
-            
-            # Combine PDFs in order
-            for i, pdf_info in enumerate(self.pdf_files):
-                print(f"Processing file {i+1}/{len(self.pdf_files)}: {pdf_info['filename']}")
-                
-                try:
-                    with open(pdf_info['path'], 'rb') as pdf_file:
-                        pdf_reader = PyPDF2.PdfReader(pdf_file)
-                        
-                        # Add all pages from this PDF
-                        for page_num in range(len(pdf_reader.pages)):
-                            page = pdf_reader.pages[page_num]
-                            pdf_writer.add_page(page)
-                            current_page += 1
-                        
-                        # Copy metadata from first PDF
-                        if i == 0 and pdf_reader.metadata:
-                            pdf_writer.add_metadata(pdf_reader.metadata)
-                
-                except Exception as e:
-                    print(f"Error processing PDF {pdf_info['filename']}: {str(e)}")
-                    # Continue with other files
-                    continue
-            
-            # Write combined PDF
-            with open(output_path, 'wb') as output_file:
-                pdf_writer.write(output_file)
-            
-            print(f"✅ Successfully combined {len(self.pdf_files)} PDFs into {output_path}")
-            print(f"   Total pages: {current_page}")
-            print(f"   Output size: {os.path.getsize(output_path) / (1024*1024):.2f}MB")
-            
-            return True
-            
-        except Exception as e:
-            print(f"❌ Error combining PDFs: {str(e)}")
-            return False
-    
-    def get_pdf_list(self) -> List[Dict[str, Any]]:
-        """Get list of current PDF files with metadata"""
-        return [{
-            'index': pdf['index'],
-            'filename': pdf['filename'],
-            'pages': pdf['pages'],
-            'size': pdf['size'],
-            'size_mb': round(pdf['size'] / (1024*1024), 2),
-            'title': pdf.get('title', '')
-        } for pdf in self.pdf_files]
-    
-    def get_stats(self) -> Dict[str, Any]:
-        """Get current statistics"""
-        total_size = sum(pdf['size'] for pdf in self.pdf_files)
-        total_pages = sum(pdf['pages'] for pdf in self.pdf_files)
-        
-        return {
-            'file_count': len(self.pdf_files),
-            'max_files': self.max_files,
-            'total_size': total_size,
-            'total_size_mb': round(total_size / (1024*1024), 2),
-            'max_size_mb': round(self.max_total_size / (1024*1024)),
-            'total_pages': total_pages,
-            'can_add_more': len(self.pdf_files) < self.max_files and total_size < self.max_total_size
-        }
-
 # Store processors per session
 processors = {}
-pdf_processors = {}
 
 def get_processor():
     """Get or create processor for current session"""
@@ -1140,24 +919,6 @@ def get_processor():
     print(f"📊 Total active processors: {len(processors)}")
     return processors[session_id]
 
-def get_pdf_processor():
-    """Get or create PDF processor for current session"""
-    if 'session_id' not in session:
-        session['session_id'] = str(uuid.uuid4())
-        print(f"🆕 Created new session: {session['session_id']}")
-    
-    session_id = session['session_id']
-    print(f"🔄 Using PDF session: {session_id}")
-    
-    if session_id not in pdf_processors:
-        pdf_processors[session_id] = PDFCombineProcessor(session_id)
-        print(f"🆕 Created new PDF processor for session: {session_id}")
-    else:
-        print(f"♻️  Reusing existing PDF processor for session: {session_id}")
-    
-    print(f"📊 Total active PDF processors: {len(pdf_processors)}")
-    return pdf_processors[session_id]
-
 def cleanup_old_processors():
     """Clean up old processors (simple cleanup)"""
     if len(processors) > 50:  # Clean up if too many processors
@@ -1165,12 +926,6 @@ def cleanup_old_processors():
         for session_id in old_sessions:
             processors[session_id].cleanup()
             del processors[session_id]
-    
-    if len(pdf_processors) > 50:  # Clean up PDF processors too
-        old_sessions = list(pdf_processors.keys())[:25]
-        for session_id in old_sessions:
-            pdf_processors[session_id].cleanup()
-            del pdf_processors[session_id]
 
 # Flask Routes
 @app.route('/')
@@ -1190,15 +945,6 @@ def mailmerge():
             return f.read()
     except FileNotFoundError:
         return "<h1>Mail Merge</h1><p>Mail merge page not found. Please upload mailmerge.html</p>"
-
-@app.route('/pdfcombine')
-def pdfcombine():
-    """Serve the PDF combine page"""
-    try:
-        with open('pdfcombine.html', 'r', encoding='utf-8') as f:
-            return f.read()
-    except FileNotFoundError:
-        return "<h1>PDF Combine</h1><p>PDF combine page not found. Please upload pdfcombine.html</p>"
 
 @app.route('/style.css')
 def serve_css():
@@ -1487,9 +1233,8 @@ def health_check():
     """Health check endpoint"""
     return jsonify({
         'status': 'healthy', 
-        'service': 'Office Sigma - Document Tools',
+        'service': 'Mail Merge SaaS - Word & PDF Support',
         'active_sessions': len(processors),
-        'active_pdf_sessions': len(pdf_processors),
         'upload_folder': app.config['UPLOAD_FOLDER'],
         'output_folder': OUTPUT_FOLDER
     })
@@ -1509,7 +1254,6 @@ def debug_info():
             'session_id': processor.session_id,
             'session_data': dict(session),
             'processors_count': len(processors),
-            'pdf_processors_count': len(pdf_processors),
             'processor_template_path': processor.template_path,
             'processor_data_records': len(processor.data) if processor.data else 0,
             'upload_folder': app.config['UPLOAD_FOLDER'],

@@ -25,17 +25,6 @@ document.addEventListener('DOMContentLoaded', function () {
         return;
     }
 
-    // Only Word format options are supported (PDF disabled)
-    // Disable PDF options since they're not working properly
-    const pdfOptions = document.querySelectorAll('#single-pdf, #multiple-pdf');
-    pdfOptions.forEach(option => {
-        const formatOption = option.closest('.format-option');
-        if (formatOption) {
-            formatOption.style.display = 'none'; // Hide PDF options
-        }
-        option.disabled = true; // Also disable the input
-    });
-
     // Set default to single-word
     const singleWordOption = document.getElementById('single-word');
     if (singleWordOption) {

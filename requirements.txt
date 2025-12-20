@@ -11,9 +11,7 @@ openpyxl==3.1.2
 
 # PDF conversion (pure Python - no external dependencies)
 mammoth==1.11.0
-
-# PDF processing for combine tool
-PyPDF2==3.0.1
+weasyprint==60.2
 
 # Production server
 gunicorn==21.2.0
