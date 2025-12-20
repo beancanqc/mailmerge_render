@@ -709,33 +709,70 @@ class MailMergeProcessor:
     def convert_docx_to_pdf_direct(self, docx_path: str, pdf_path: str) -> bool:
         """Direct DOCX to PDF conversion using docx2pdf (preserves formatting)"""
         try:
-            print(f"Converting DOCX to PDF directly: {docx_path} → {pdf_path}")
+            print(f"🔄 Converting DOCX to PDF directly: {docx_path} → {pdf_path}")
             
-            # Try docx2pdf first (best formatting preservation)
+            # Verify input file exists and has content
+            if not os.path.exists(docx_path):
+                print(f"❌ Input DOCX file not found: {docx_path}")
+                return False
+            
+            file_size = os.path.getsize(docx_path)
+            print(f"📊 Input DOCX size: {file_size} bytes")
+            
+            if file_size == 0:
+                print("❌ Input DOCX file is empty")
+                return False
+            
+            # Try docx2pdf first (best formatting preservation) 
             try:
                 from docx2pdf import convert
-                print("✅ docx2pdf is available")
+                print("✅ docx2pdf library is available")
                 
-                # Convert directly
+                # Ensure output directory exists
+                output_dir = os.path.dirname(pdf_path)
+                if output_dir:
+                    os.makedirs(output_dir, exist_ok=True)
+                    print(f"📁 Output directory ready: {output_dir}")
+                
+                # Convert directly - this preserves ALL Word formatting
+                print("🔄 Running docx2pdf conversion...")
+                print(f"   Input: {docx_path}")
+                print(f"   Output: {pdf_path}")
+                
+                # Call docx2pdf convert function
                 convert(docx_path, pdf_path)
+                print("✅ docx2pdf conversion completed without errors")
                 
-                # Verify PDF was created
-                if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
-                    print(f"✅ Direct PDF conversion successful: {pdf_path} ({os.path.getsize(pdf_path)} bytes)")
-                    return True
+                # Verify PDF was created and has content
+                if os.path.exists(pdf_path):
+                    pdf_size = os.path.getsize(pdf_path)
+                    print(f"📊 Output PDF size: {pdf_size} bytes")
+                    
+                    if pdf_size > 0:
+                        print(f"✅ PDF conversion successful with docx2pdf!")
+                        print(f"   Final file: {pdf_path} ({pdf_size:,} bytes)")
+                        return True
+                    else:
+                        print("❌ PDF file was created but is empty")
+                        return False
                 else:
-                    print("❌ Direct PDF conversion failed - no output file")
+                    print(f"❌ PDF file was not created at expected location: {pdf_path}")
                     return False
                     
             except ImportError:
-                print("ℹ️  docx2pdf not available, trying LibreOffice method...")
+                print("❌ docx2pdf library not available, trying LibreOffice method...")
                 return self.convert_docx_to_pdf_libreoffice(docx_path, pdf_path)
             except Exception as e:
-                print(f"❌ docx2pdf conversion failed: {e}")
+                print(f"❌ docx2pdf conversion failed with error: {e}")
+                import traceback
+                traceback.print_exc()
+                print("🔄 Falling back to LibreOffice method...")
                 return self.convert_docx_to_pdf_libreoffice(docx_path, pdf_path)
                 
         except Exception as e:
             print(f"❌ Error in direct DOCX to PDF conversion: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def convert_docx_to_pdf_libreoffice(self, docx_path: str, pdf_path: str) -> bool:
@@ -884,7 +921,11 @@ class MailMergeProcessor:
     def convert_docx_to_pdf_html_fallback(self, docx_path: str, pdf_path: str) -> bool:
         """HTML fallback PDF conversion (formatting may be lost) - use as last resort"""
         try:
-            print("⚠️  Using HTML fallback PDF conversion (formatting may be lost)...")
+            print("🚨 ========================================")
+            print("🚨 WARNING: Using HTML fallback method!")
+            print("🚨 Word formatting will be LOST!")
+            print("🚨 Install LibreOffice for better quality")
+            print("🚨 ========================================")
             
             # First convert DOCX to HTML
             html_content = self.convert_docx_to_html(docx_path)
@@ -894,9 +935,10 @@ class MailMergeProcessor:
             
             print(f"✅ Successfully converted DOCX to HTML ({len(html_content)} characters)")
             
-            # Then convert HTML to PDF
+            # Then convert HTML to PDF (this loses formatting)
             if self.convert_html_to_pdf(html_content, pdf_path):
-                print(f"✅ Successfully converted HTML to PDF: {pdf_path}")
+                print(f"⚠️  HTML-to-PDF conversion completed: {pdf_path}")
+                print("⚠️  WARNING: Output PDF has basic formatting only!")
                 return True
             else:
                 print("❌ Failed to convert HTML to PDF")
@@ -1067,8 +1109,9 @@ class MailMergeProcessor:
             print(f"📊 Word document size: {os.path.getsize(temp_docx.name)} bytes")
             
             # Try direct Word-to-PDF conversion first (preserves ALL formatting)
-            print("🔄 Attempting direct Word-to-PDF conversion (preserves formatting)...")
+            print("🔄 Step 1: Attempting direct docx2pdf conversion (highest quality)...")
             if self.convert_docx_to_pdf_direct(temp_docx.name, output_path):
+                print("✅ SUCCESS: Used docx2pdf conversion - formatting preserved!")
                 try:
                     os.unlink(temp_docx.name)
                 except:
@@ -1076,8 +1119,9 @@ class MailMergeProcessor:
                 return True
             
             # Try Word COM conversion (Windows only)
-            print("🔄 Attempting Word COM conversion (Windows only)...")
+            print("🔄 Step 2: Attempting Word COM conversion (Windows only)...")
             if self.convert_docx_to_pdf_with_word(temp_docx.name, output_path):
+                print("✅ SUCCESS: Used Word COM conversion - formatting preserved!")
                 try:
                     os.unlink(temp_docx.name)
                 except:
@@ -1085,7 +1129,8 @@ class MailMergeProcessor:
                 return True
             
             # Fall back to HTML-based conversion as last resort
-            print("🔄 All direct methods failed, trying HTML fallback (formatting may be lost)...")
+            print("⚠️  Step 3: All direct methods failed, trying HTML fallback (formatting may be lost)...")
+            print("🚨 WARNING: This method will lose Word formatting and produce basic text layout!")
             success = self.convert_docx_to_pdf_html_fallback(temp_docx.name, output_path)
             
             # Clean up temp file
@@ -1135,9 +1180,29 @@ class MailMergeProcessor:
                 pdf_output_path = os.path.join(output_dir, f"{safe_filename}.pdf")
                 
                 # Try direct Word-to-PDF conversion first (preserves formatting)
-                success = (self.convert_docx_to_pdf_direct(temp_docx.name, pdf_output_path) or
-                          self.convert_docx_to_pdf_with_word(temp_docx.name, pdf_output_path) or
-                          self.convert_docx_to_pdf_html_fallback(temp_docx.name, pdf_output_path))
+                print(f"🔄 Converting record {index+1} to PDF...")
+                
+                success = False
+                
+                # Method 1: Direct docx2pdf (highest quality)
+                print(f"   Step 1: Trying docx2pdf conversion...")
+                if self.convert_docx_to_pdf_direct(temp_docx.name, pdf_output_path):
+                    print(f"   ✅ SUCCESS: Used docx2pdf for record {index+1}")
+                    success = True
+                
+                # Method 2: Word COM (Windows only)
+                if not success:
+                    print(f"   Step 2: Trying Word COM conversion...")
+                    if self.convert_docx_to_pdf_with_word(temp_docx.name, pdf_output_path):
+                        print(f"   ✅ SUCCESS: Used Word COM for record {index+1}")
+                        success = True
+                
+                # Method 3: HTML fallback (last resort)
+                if not success:
+                    print(f"   ⚠️  Step 3: Using HTML fallback (formatting will be lost)...")
+                    if self.convert_docx_to_pdf_html_fallback(temp_docx.name, pdf_output_path):
+                        print(f"   ⚠️  Used HTML fallback for record {index+1} - formatting lost")
+                        success = True
                 
                 # Clean up temp file
                 try:

@@ -521,6 +521,34 @@ body {
     cursor: not-allowed;
 }
 
+/* Spinning loader for merge button */
+.merge-btn-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+
+.merge-btn-spinner {
+    display: none;
+    width: 20px;
+    height: 20px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: white;
+    animation: spin 1s ease-in-out infinite;
+}
+
+.merge-btn.processing .merge-btn-spinner {
+    display: block;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 /* Responsive design */
 @media (max-width: 768px) {
     .header .container {
