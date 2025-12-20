@@ -706,31 +706,82 @@ class MailMergeProcessor:
                 pass
             return False
 
-    def convert_docx_to_pdf_fallback(self, docx_path: str, pdf_path: str) -> bool:
-        """Fallback PDF conversion using HTML method with enhanced error handling"""
+    def convert_docx_to_pdf_direct(self, docx_path: str, pdf_path: str) -> bool:
+        """Direct DOCX to PDF conversion using docx2pdf (preserves formatting)"""
         try:
-            print("Using fallback HTML-based PDF conversion...")
+            print(f"Converting DOCX to PDF directly: {docx_path} → {pdf_path}")
             
-            # First convert DOCX to HTML
-            html_content = self.convert_docx_to_html(docx_path)
-            if not html_content:
-                print("❌ Failed to convert DOCX to HTML")
-                return False
-            
-            print(f"✅ Successfully converted DOCX to HTML ({len(html_content)} characters)")
-            
-            # Then convert HTML to PDF
-            if self.convert_html_to_pdf(html_content, pdf_path):
-                print(f"✅ Successfully converted HTML to PDF: {pdf_path}")
-                return True
-            else:
-                print("❌ Failed to convert HTML to PDF")
-                return False
+            # Try docx2pdf first (best formatting preservation)
+            try:
+                from docx2pdf import convert
+                print("✅ docx2pdf is available")
+                
+                # Convert directly
+                convert(docx_path, pdf_path)
+                
+                # Verify PDF was created
+                if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
+                    print(f"✅ Direct PDF conversion successful: {pdf_path} ({os.path.getsize(pdf_path)} bytes)")
+                    return True
+                else:
+                    print("❌ Direct PDF conversion failed - no output file")
+                    return False
+                    
+            except ImportError:
+                print("ℹ️  docx2pdf not available, trying LibreOffice method...")
+                return self.convert_docx_to_pdf_libreoffice(docx_path, pdf_path)
+            except Exception as e:
+                print(f"❌ docx2pdf conversion failed: {e}")
+                return self.convert_docx_to_pdf_libreoffice(docx_path, pdf_path)
                 
         except Exception as e:
-            print(f"❌ Fallback PDF conversion failed: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            print(f"❌ Error in direct DOCX to PDF conversion: {str(e)}")
+            return False
+    
+    def convert_docx_to_pdf_libreoffice(self, docx_path: str, pdf_path: str) -> bool:
+        """Convert DOCX to PDF using LibreOffice (available on Linux)"""
+        try:
+            print("Converting DOCX to PDF using LibreOffice...")
+            import subprocess
+            
+            # Try LibreOffice headless conversion
+            cmd = [
+                'libreoffice', '--headless', '--convert-to', 'pdf',
+                '--outdir', os.path.dirname(pdf_path), docx_path
+            ]
+            
+            print(f"Running: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            
+            if result.returncode == 0:
+                # LibreOffice creates PDF with same base name
+                expected_pdf = os.path.join(
+                    os.path.dirname(pdf_path),
+                    os.path.splitext(os.path.basename(docx_path))[0] + '.pdf'
+                )
+                
+                # Move to desired location if different
+                if expected_pdf != pdf_path and os.path.exists(expected_pdf):
+                    shutil.move(expected_pdf, pdf_path)
+                
+                if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
+                    print(f"✅ LibreOffice PDF conversion successful: {pdf_path} ({os.path.getsize(pdf_path)} bytes)")
+                    return True
+                else:
+                    print("❌ LibreOffice conversion failed - no output file")
+                    return False
+            else:
+                print(f"❌ LibreOffice conversion failed: {result.stderr}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            print("❌ LibreOffice conversion timed out")
+            return False
+        except FileNotFoundError:
+            print("ℹ️  LibreOffice not found, falling back to HTML conversion...")
+            return False
+        except Exception as e:
+            print(f"❌ LibreOffice conversion error: {str(e)}")
             return False
     
     def convert_html_to_pdf(self, html_content: str, output_path: str) -> bool:
@@ -824,11 +875,32 @@ class MailMergeProcessor:
                 print("🔄 Trying alternative PDF generation method...")
                 return self.convert_html_to_pdf_alternative(html_content, output_path)
                 
+    def convert_docx_to_pdf_html_fallback(self, docx_path: str, pdf_path: str) -> bool:
+        """HTML fallback PDF conversion (formatting may be lost) - use as last resort"""
+        try:
+            print("⚠️  Using HTML fallback PDF conversion (formatting may be lost)...")
+            
+            # First convert DOCX to HTML
+            html_content = self.convert_docx_to_html(docx_path)
+            if not html_content:
+                print("❌ Failed to convert DOCX to HTML")
+                return False
+            
+            print(f"✅ Successfully converted DOCX to HTML ({len(html_content)} characters)")
+            
+            # Then convert HTML to PDF
+            if self.convert_html_to_pdf(html_content, pdf_path):
+                print(f"✅ Successfully converted HTML to PDF: {pdf_path}")
+                return True
+            else:
+                print("❌ Failed to convert HTML to PDF")
+                return False
+                
         except Exception as e:
-            print(f"❌ Error in HTML to PDF conversion: {str(e)}")
+            print(f"❌ HTML fallback PDF conversion failed: {str(e)}")
             import traceback
             traceback.print_exc()
-            return self.convert_html_to_pdf_alternative(html_content, output_path)
+            return False
     
     def convert_html_to_pdf_alternative(self, html_content: str, output_path: str) -> bool:
         """Alternative PDF generation using reportlab as fallback"""
@@ -957,7 +1029,7 @@ class MailMergeProcessor:
             return ""
 
     def generate_single_pdf(self, output_path: str) -> bool:
-        """Generate a single PDF document - Enhanced with Word-based conversion and better error handling"""
+        """Generate a single PDF document - Enhanced with direct Word-to-PDF conversion"""
         try:
             if not self.template_path or not self.data:
                 raise ValueError("Template and data must be loaded first")
@@ -988,19 +1060,27 @@ class MailMergeProcessor:
             
             print(f"📊 Word document size: {os.path.getsize(temp_docx.name)} bytes")
             
-            # Try Word-based PDF conversion first (best quality)
-            print("🔄 Attempting Word COM conversion (Windows only)...")
-            if self.convert_docx_to_pdf_with_word(temp_docx.name, output_path):
-                # Clean up temp file
+            # Try direct Word-to-PDF conversion first (preserves ALL formatting)
+            print("🔄 Attempting direct Word-to-PDF conversion (preserves formatting)...")
+            if self.convert_docx_to_pdf_direct(temp_docx.name, output_path):
                 try:
                     os.unlink(temp_docx.name)
                 except:
                     pass
                 return True
             
-            # Fall back to HTML-based conversion if Word is not available
-            print("🔄 Word not available, trying fallback HTML-based conversion...")
-            success = self.convert_docx_to_pdf_fallback(temp_docx.name, output_path)
+            # Try Word COM conversion (Windows only)
+            print("🔄 Attempting Word COM conversion (Windows only)...")
+            if self.convert_docx_to_pdf_with_word(temp_docx.name, output_path):
+                try:
+                    os.unlink(temp_docx.name)
+                except:
+                    pass
+                return True
+            
+            # Fall back to HTML-based conversion as last resort
+            print("🔄 All direct methods failed, trying HTML fallback (formatting may be lost)...")
+            success = self.convert_docx_to_pdf_html_fallback(temp_docx.name, output_path)
             
             # Clean up temp file
             try:
@@ -1020,7 +1100,7 @@ class MailMergeProcessor:
             return False
     
     def generate_multiple_pdf(self, output_dir: str) -> bool:
-        """Generate multiple PDF documents (one per record) - Enhanced with Word conversion"""
+        """Generate multiple PDF documents (one per record) - Enhanced with direct Word-to-PDF conversion"""
         try:
             if not self.template_path or not self.data:
                 raise ValueError("Template and data must be loaded first")
@@ -1048,9 +1128,10 @@ class MailMergeProcessor:
                 safe_filename = re.sub(r'[<>:"/\\|?*]', '_', str(first_value))
                 pdf_output_path = os.path.join(output_dir, f"{safe_filename}.pdf")
                 
-                # Try Word-based conversion first, fall back to HTML if needed
-                success = (self.convert_docx_to_pdf_with_word(temp_docx.name, pdf_output_path) or 
-                          self.convert_docx_to_pdf_fallback(temp_docx.name, pdf_output_path))
+                # Try direct Word-to-PDF conversion first (preserves formatting)
+                success = (self.convert_docx_to_pdf_direct(temp_docx.name, pdf_output_path) or
+                          self.convert_docx_to_pdf_with_word(temp_docx.name, pdf_output_path) or
+                          self.convert_docx_to_pdf_html_fallback(temp_docx.name, pdf_output_path))
                 
                 # Clean up temp file
                 try:
@@ -1060,12 +1141,16 @@ class MailMergeProcessor:
                 
                 if not success:
                     print(f"❌ Failed to create PDF for record {index+1}")
+                else:
+                    print(f"✅ Created PDF {index+1}: {safe_filename}.pdf")
             
-            print(f"✅ Created {len(self.data)} PDF files using Word conversion")
+            print(f"✅ Created {len(self.data)} PDF files with preserved formatting")
             return True
             
         except Exception as e:
             print(f"❌ Error creating multiple PDF files: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def process_merge(self, output_format: str, output_path: str) -> bool:
