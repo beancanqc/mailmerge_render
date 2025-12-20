@@ -738,9 +738,9 @@ class MailMergeProcessor:
         try:
             print("Converting HTML to PDF using WeasyPrint...")
             
-            # Check if WeasyPrint is available
+            # Check if WeasyPrint is available and import it properly to avoid naming conflicts
             try:
-                import weasyprint
+                import weasyprint as wp
                 print("✅ WeasyPrint is available")
             except ImportError as e:
                 print(f"❌ WeasyPrint not available: {e}")
@@ -801,10 +801,13 @@ class MailMergeProcessor:
             </html>
             """
             
-            # Convert to PDF with error handling
+            # Convert to PDF with error handling - use the wp alias to avoid conflicts
             try:
                 print("Generating PDF from HTML...")
-                weasyprint.HTML(string=html_with_css).write_pdf(output_path)
+                # Create HTML document object
+                html_doc = wp.HTML(string=html_with_css)
+                # Write PDF to file
+                html_doc.write_pdf(output_path)
                 
                 # Verify PDF was created
                 if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
@@ -816,6 +819,8 @@ class MailMergeProcessor:
                     
             except Exception as pdf_error:
                 print(f"❌ WeasyPrint PDF generation error: {pdf_error}")
+                import traceback
+                traceback.print_exc()
                 return False
                 
         except Exception as e:
