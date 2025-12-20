@@ -1,4 +1,4 @@
-# Mail Merge SaaS Requirements - Enhanced with Word automation
+# Mail Merge SaaS Requirements - Enhanced with Word automation and PDF support
 # Install with: pip install -r requirements.txt
 
 # Core web framework
@@ -9,9 +9,13 @@ werkzeug==2.3.7
 python-docx==0.8.11
 openpyxl==3.1.2
 
-# PDF conversion (pure Python - no external dependencies)
+# PDF conversion with Linux compatibility
 mammoth==1.11.0
 weasyprint==60.2
+
+# Additional dependencies for WeasyPrint on Linux
+cffi>=1.0.0
+cairocffi>=0.9.0
 
 # Production server
 gunicorn==21.2.0

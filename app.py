@@ -707,52 +707,91 @@ class MailMergeProcessor:
             return False
 
     def convert_docx_to_pdf_fallback(self, docx_path: str, pdf_path: str) -> bool:
-        """Fallback PDF conversion using HTML method"""
+        """Fallback PDF conversion using HTML method with enhanced error handling"""
         try:
             print("Using fallback HTML-based PDF conversion...")
+            
+            # First convert DOCX to HTML
             html_content = self.convert_docx_to_html(docx_path)
-            if html_content:
-                return self.convert_html_to_pdf(html_content, pdf_path)
-            return False
+            if not html_content:
+                print("❌ Failed to convert DOCX to HTML")
+                return False
+            
+            print(f"✅ Successfully converted DOCX to HTML ({len(html_content)} characters)")
+            
+            # Then convert HTML to PDF
+            if self.convert_html_to_pdf(html_content, pdf_path):
+                print(f"✅ Successfully converted HTML to PDF: {pdf_path}")
+                return True
+            else:
+                print("❌ Failed to convert HTML to PDF")
+                return False
+                
         except Exception as e:
             print(f"❌ Fallback PDF conversion failed: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def convert_html_to_pdf(self, html_content: str, output_path: str) -> bool:
-        """Convert HTML content to PDF using weasyprint"""
+        """Convert HTML content to PDF using weasyprint with enhanced error handling"""
         try:
-            # Add basic CSS for better PDF formatting
+            print("Converting HTML to PDF using WeasyPrint...")
+            
+            # Check if WeasyPrint is available
+            try:
+                import weasyprint
+                print("✅ WeasyPrint is available")
+            except ImportError as e:
+                print(f"❌ WeasyPrint not available: {e}")
+                print("💡 Try installing: pip install weasyprint")
+                return False
+            
+            # Add enhanced CSS for better PDF formatting
             html_with_css = f"""
+            <!DOCTYPE html>
             <html>
             <head>
                 <meta charset="utf-8">
                 <style>
-                    body {{
-                        font-family: Arial, sans-serif;
-                        font-size: 12pt;
-                        line-height: 1.5;
+                    @page {{
+                        size: A4;
                         margin: 1in;
+                    }}
+                    body {{
+                        font-family: 'DejaVu Sans', Arial, sans-serif;
+                        font-size: 11pt;
+                        line-height: 1.4;
+                        color: #000;
                     }}
                     h1, h2, h3, h4, h5, h6 {{
                         color: #333;
                         margin-top: 1.2em;
                         margin-bottom: 0.6em;
+                        page-break-after: avoid;
                     }}
                     p {{
-                        margin-bottom: 1em;
+                        margin-bottom: 0.8em;
+                        text-align: justify;
                     }}
                     table {{
                         border-collapse: collapse;
                         width: 100%;
                         margin-bottom: 1em;
+                        page-break-inside: avoid;
                     }}
                     th, td {{
                         border: 1px solid #ddd;
                         padding: 8px;
                         text-align: left;
+                        vertical-align: top;
                     }}
                     th {{
-                        background-color: #f2f2f2;
+                        background-color: #f5f5f5;
+                        font-weight: bold;
+                    }}
+                    .page-break {{
+                        page-break-before: always;
                     }}
                 </style>
             </head>
@@ -762,15 +801,27 @@ class MailMergeProcessor:
             </html>
             """
             
+            # Convert to PDF with error handling
             try:
-                import weasyprint
+                print("Generating PDF from HTML...")
                 weasyprint.HTML(string=html_with_css).write_pdf(output_path)
-                return True
-            except ImportError:
-                print("WeasyPrint not available for HTML to PDF conversion")
+                
+                # Verify PDF was created
+                if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                    print(f"✅ PDF created successfully: {output_path} ({os.path.getsize(output_path)} bytes)")
+                    return True
+                else:
+                    print("❌ PDF file was not created or is empty")
+                    return False
+                    
+            except Exception as pdf_error:
+                print(f"❌ WeasyPrint PDF generation error: {pdf_error}")
                 return False
+                
         except Exception as e:
-            print(f"Error converting HTML to PDF: {str(e)}")
+            print(f"❌ Error in HTML to PDF conversion: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def convert_docx_to_html(self, docx_path: str) -> str:
@@ -784,7 +835,7 @@ class MailMergeProcessor:
             return ""
 
     def generate_single_pdf(self, output_path: str) -> bool:
-        """Generate a single PDF document - Enhanced with Word-based conversion"""
+        """Generate a single PDF document - Enhanced with Word-based conversion and better error handling"""
         try:
             if not self.template_path or not self.data:
                 raise ValueError("Template and data must be loaded first")
@@ -795,14 +846,28 @@ class MailMergeProcessor:
             temp_docx = tempfile.NamedTemporaryFile(suffix='.docx', delete=False)
             temp_docx.close()
             
+            print(f"📄 Creating temporary Word document: {temp_docx.name}")
+            
             # Use our improved Word generation method
             if not self.generate_single_word(temp_docx.name):
                 print("❌ Failed to create Word document for PDF conversion")
+                try:
+                    os.unlink(temp_docx.name)
+                except:
+                    pass
                 return False
             
             print(f"✅ Created temporary Word document: {temp_docx.name}")
             
+            # Check if temp Word file was actually created
+            if not os.path.exists(temp_docx.name) or os.path.getsize(temp_docx.name) == 0:
+                print("❌ Temporary Word document is missing or empty")
+                return False
+            
+            print(f"📊 Word document size: {os.path.getsize(temp_docx.name)} bytes")
+            
             # Try Word-based PDF conversion first (best quality)
+            print("🔄 Attempting Word COM conversion (Windows only)...")
             if self.convert_docx_to_pdf_with_word(temp_docx.name, output_path):
                 # Clean up temp file
                 try:
@@ -821,10 +886,15 @@ class MailMergeProcessor:
             except:
                 pass
                 
+            if not success:
+                print("❌ All PDF conversion methods failed")
+                
             return success
             
         except Exception as e:
             print(f"❌ Error creating single PDF document: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def generate_multiple_pdf(self, output_dir: str) -> bool:
