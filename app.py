@@ -663,6 +663,38 @@ class MailMergeProcessor:
             traceback.print_exc()
             return False
     
+    def convert_word_to_pdf_simple(self, word_path: str, pdf_path: str) -> bool:
+        """Simple Word to PDF conversion using best available method"""
+        try:
+            print(f"🔄 Converting {os.path.basename(word_path)} to PDF...")
+            
+            # Try LibreOffice first (works on Linux)
+            if self.convert_docx_to_pdf_libreoffice(word_path, pdf_path):
+                print(f"   ✅ LibreOffice conversion successful")
+                return True
+            
+            # Try docx2pdf (works on Windows)
+            if self.convert_docx_to_pdf_direct(word_path, pdf_path):
+                print(f"   ✅ docx2pdf conversion successful")
+                return True
+                
+            # Try Word COM (Windows only)
+            if self.convert_docx_to_pdf_with_word(word_path, pdf_path):
+                print(f"   ✅ Word COM conversion successful")
+                return True
+            
+            # Fall back to HTML conversion
+            if self.convert_docx_to_pdf_html_fallback(word_path, pdf_path):
+                print(f"   ⚠️  HTML fallback conversion successful (basic formatting)")
+                return True
+                
+            print(f"   ❌ All conversion methods failed")
+            return False
+            
+        except Exception as e:
+            print(f"❌ Error in simple PDF conversion: {str(e)}")
+            return False
+
     def convert_docx_to_pdf_with_word(self, docx_path: str, pdf_path: str) -> bool:
         """Convert DOCX to PDF using Microsoft Word COM automation (Windows only)"""
         try:
@@ -1172,46 +1204,38 @@ class MailMergeProcessor:
             return ""
 
     def generate_single_pdf(self, output_path: str) -> bool:
-        """Generate a single PDF by first creating a Word file, then converting to PDF"""
+        """Generate a single PDF by creating a Word file then converting it to PDF"""
         try:
             print(f"📄 Creating single PDF document with {len(self.data)} records...")
             
-            # Step 1: Create Word document using the PROVEN working method
-            print("🔄 Step 1: Creating Word document (same as '1 Word file' option)...")
+            # Step 1: Use the proven "1 Word file" method
+            print("🔄 Step 1: Creating Word document (using proven '1 Word file' method)...")
             temp_word_file = tempfile.NamedTemporaryFile(suffix='.docx', delete=False).name
             
-            # Use the exact same method that works for "1 Word file"
             if not self.generate_single_word(temp_word_file):
                 print("❌ Failed to create Word document")
+                try:
+                    os.unlink(temp_word_file)
+                except:
+                    pass
                 return False
             
             print(f"✅ Step 1 Complete: Word document created ({os.path.getsize(temp_word_file):,} bytes)")
             
-            # Step 2: Convert the perfect Word file to PDF
-            print("🔄 Step 2: Converting Word document to PDF...")
-            
-            # Try best available conversion method
-            if self.convert_docx_to_pdf_direct(temp_word_file, output_path):
-                print("✅ SUCCESS: Used docx2pdf conversion - formatting preserved!")
-                success = True
-            elif self.convert_docx_to_pdf_with_word(temp_word_file, output_path):
-                print("✅ SUCCESS: Used Word COM conversion - formatting preserved!")
-                success = True
-            elif self.convert_docx_to_pdf_libreoffice(temp_word_file, output_path):
-                print("✅ SUCCESS: Used LibreOffice conversion - good quality!")
-                success = True
-            elif self.convert_docx_to_pdf_html_fallback(temp_word_file, output_path):
-                print("✅ SUCCESS: Used HTML fallback conversion - basic formatting!")
-                success = True
-            else:
-                print("❌ All PDF conversion methods failed")
-                success = False
+            # Step 2: Convert to PDF using simplest available method
+            print("🔄 Step 2: Converting to PDF...")
+            success = self.convert_word_to_pdf_simple(temp_word_file, output_path)
             
             # Clean up temp file
             try:
                 os.unlink(temp_word_file)
             except:
                 pass
+            
+            if success:
+                print(f"✅ SUCCESS: Single PDF created at {output_path}")
+            else:
+                print("❌ Failed to convert Word document to PDF")
             
             return success
             
@@ -1406,18 +1430,8 @@ class MailMergeProcessor:
                 
                 print(f"   Converting: {word_file} → {pdf_file}")
                 
-                # Try conversion methods
-                if self.convert_docx_to_pdf_direct(word_path, pdf_path):
-                    print(f"   ✅ SUCCESS: Used docx2pdf for {word_file}")
-                    successful_conversions += 1
-                elif self.convert_docx_to_pdf_with_word(word_path, pdf_path):
-                    print(f"   ✅ SUCCESS: Used Word COM for {word_file}")
-                    successful_conversions += 1
-                elif self.convert_docx_to_pdf_libreoffice(word_path, pdf_path):
-                    print(f"   ✅ SUCCESS: Used LibreOffice for {word_file}")
-                    successful_conversions += 1
-                elif self.convert_docx_to_pdf_html_fallback(word_path, pdf_path):
-                    print(f"   ✅ SUCCESS: Used HTML fallback for {word_file}")
+                if self.convert_word_to_pdf_simple(word_path, pdf_path):
+                    print(f"   ✅ SUCCESS: Converted {word_file}")
                     successful_conversions += 1
                 else:
                     print(f"   ❌ Failed to convert {word_file}")
@@ -1431,7 +1445,7 @@ class MailMergeProcessor:
                 pass
             
             if successful_conversions > 0:
-                print(f"🎉 SUCCESS: {successful_conversions}/{len(word_files)} PDFs created with preserved formatting")
+                print(f"🎉 SUCCESS: {successful_conversions}/{len(word_files)} PDFs created")
                 return True
             else:
                 print("❌ No PDF files were created")
