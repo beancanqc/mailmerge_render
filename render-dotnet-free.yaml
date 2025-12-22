@@ -1,0 +1,16 @@
+# .NET Mail Merge SaaS - Free Version for Render
+
+services:
+  - type: web
+    name: mailmerge-saas-dotnet-free
+    env: dotnet
+    plan: free
+    buildCommand: dotnet publish -c Release -o publish
+    startCommand: dotnet publish/MailMergeSaaS-Free.dll
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ASPNETCORE_URLS
+        value: http://0.0.0.0:10000
+      - key: PORT
+        value: 10000

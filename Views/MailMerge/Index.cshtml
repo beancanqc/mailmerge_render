@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mail Merge SaaS - .NET Edition</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="~/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Mail Merge SaaS</h1>
+            <p class="subtitle">.NET Edition - Perfect PDF Formatting 🚀</p>
+        </header>
+
+        <main>
+            <!-- Step 1: Upload Template -->
+            <div class="step-container" id="step1">
+                <div class="step-header">
+                    <div class="step-number">1</div>
+                    <h2>Upload Word Template</h2>
+                    <div class="step-status" id="step1-status">Pending</div>
+                </div>
+                
+                <div class="upload-zone" id="template-zone">
+                    <div class="upload-content">
+                        <div class="upload-icon">📄</div>
+                        <p>Drop your <strong>.docx template</strong> here</p>
+                        <p>or <span class="browse-link" onclick="document.getElementById('template-input').click()">browse files</span></p>
+                        <small>Use {{field_name}} for merge fields</small>
+                    </div>
+                    <input type="file" id="template-input" accept=".docx" style="display: none;">
+                </div>
+            </div>
+
+            <!-- Step 2: Upload Data -->
+            <div class="step-container" id="step2">
+                <div class="step-header">
+                    <div class="step-number">2</div>
+                    <h2>Upload Excel Data</h2>
+                    <div class="step-status" id="step2-status">Waiting</div>
+                </div>
+                
+                <div class="upload-zone disabled" id="data-zone">
+                    <div class="upload-content">
+                        <div class="upload-icon">📊</div>
+                        <p>Drop your <strong>.xlsx data file</strong> here</p>
+                        <p>or <span class="browse-link" onclick="document.getElementById('data-input').click()">browse files</span></p>
+                        <small>First row should contain column headers</small>
+                    </div>
+                    <input type="file" id="data-input" accept=".xlsx" style="display: none;">
+                </div>
+
+                <div class="data-preview" id="data-preview" style="display: none;">
+                    <h4>Data Preview</h4>
+                    <div class="preview-table" id="preview-content"></div>
+                </div>
+            </div>
+
+            <!-- Step 3: Choose Output -->
+            <div class="step-container" id="step3">
+                <div class="step-header">
+                    <div class="step-number">3</div>
+                    <h2>Choose Output Format</h2>
+                    <div class="step-status" id="step3-status">Waiting</div>
+                </div>
+                
+                <div class="output-options disabled" id="output-options">
+                    <div class="option-grid">
+                        <div class="output-option" data-type="word-single">
+                            <div class="option-icon">📄</div>
+                            <h3>Single Word Document</h3>
+                            <p>All records in one .docx file with page breaks</p>
+                        </div>
+                        
+                        <div class="output-option" data-type="word-multiple">
+                            <div class="option-icon">📑</div>
+                            <h3>Multiple Word Documents</h3>
+                            <p>Separate .docx file for each record</p>
+                        </div>
+                        
+                        <div class="output-option" data-type="pdf-single">
+                            <div class="feature-badge">NEW</div>
+                            <div class="option-icon">📕</div>
+                            <h3>Single PDF Document</h3>
+                            <p>All records in one PDF with perfect formatting</p>
+                        </div>
+                        
+                        <div class="output-option" data-type="pdf-multiple">
+                            <div class="feature-badge">NEW</div>
+                            <div class="option-icon">📚</div>
+                            <h3>Multiple PDF Documents</h3>
+                            <p>Separate PDF file for each record</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Processing -->
+            <div class="processing" id="processing" style="display: none;">
+                <div class="spinner"></div>
+                <p id="processing-message">Processing your mail merge...</p>
+            </div>
+
+            <!-- Download Results -->
+            <div class="download-section" id="download-section" style="display: none;">
+                <h3>✅ Mail Merge Completed!</h3>
+                <div class="download-links" id="download-links"></div>
+            </div>
+        </main>
+
+        <footer>
+            <p>&copy; 2025 Mail Merge SaaS - .NET Edition | Perfect Document Processing</p>
+        </footer>
+    </div>
+
+    <script src="~/mailmerge.js"></script>
+</body>
+</html>
