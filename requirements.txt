@@ -1,0 +1,18 @@
+# Mail Merge SaaS Requirements - Enhanced with Word automation
+# Install with: pip install -r requirements.txt
+
+# Core web framework
+flask==2.3.3
+werkzeug==2.3.7
+
+# Document processing (pure Python - no compilation)
+python-docx==0.8.11
+openpyxl==3.1.2
+
+# Cross-platform PDF generation for Linux deployment
+# Note: LibreOffice installed via aptfile for best PDF quality
+reportlab==4.0.9
+mammoth==1.11.0
+
+# Production server
+gunicorn==21.2.0
