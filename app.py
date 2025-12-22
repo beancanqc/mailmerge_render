@@ -547,59 +547,55 @@ class MailMergeProcessor:
             return False
     
     def convert_html_to_pdf(self, html_content: str, output_path: str) -> bool:
-        """Convert HTML content to PDF using weasyprint (Linux compatible)"""
+        """Convert HTML content to PDF using reportlab (Linux compatible)"""
         try:
-            # Add basic CSS for better PDF formatting
-            html_with_css = f"""
-            <html>
-            <head>
-                <meta charset="utf-8">
-                <style>
-                    body {{
-                        font-family: Arial, sans-serif;
-                        font-size: 12pt;
-                        line-height: 1.5;
-                        margin: 1in;
-                    }}
-                    h1, h2, h3, h4, h5, h6 {{
-                        color: #333;
-                        margin-top: 1.2em;
-                        margin-bottom: 0.6em;
-                    }}
-                    p {{
-                        margin-bottom: 1em;
-                    }}
-                    table {{
-                        border-collapse: collapse;
-                        width: 100%;
-                        margin-bottom: 1em;
-                    }}
-                    th, td {{
-                        border: 1px solid #ddd;
-                        padding: 8px;
-                        text-align: left;
-                    }}
-                    th {{
-                        background-color: #f2f2f2;
-                    }}
-                </style>
-            </head>
-            <body>
-                {html_content}
-            </body>
-            </html>
-            """
+            from reportlab.pdfgen import canvas
+            from reportlab.lib.pagesizes import letter
+            from reportlab.lib.styles import getSampleStyleSheet
+            from reportlab.platypus import SimpleDocTemplate, Paragraph
+            from reportlab.lib.units import inch
+            import html
             
-            try:
-                import weasyprint
-                weasyprint.HTML(string=html_with_css).write_pdf(output_path)
-                print(f"✅ Successfully created PDF using weasyprint: {output_path}")
-                return True
-            except ImportError:
-                print("❌ WeasyPrint not available for PDF conversion")
-                return False
+            print("Creating PDF using reportlab (cross-platform)...")
+            
+            # Create a PDF document
+            doc = SimpleDocTemplate(output_path, pagesize=letter,
+                                  rightMargin=0.75*inch, leftMargin=0.75*inch,
+                                  topMargin=0.75*inch, bottomMargin=0.75*inch)
+            
+            # Get styles
+            styles = getSampleStyleSheet()
+            story = []
+            
+            # Clean HTML content - strip HTML tags and convert to plain text
+            import re
+            # Remove HTML tags
+            text_content = re.sub(r'<[^>]+>', '', html_content)
+            # Decode HTML entities
+            text_content = html.unescape(text_content)
+            # Clean up extra whitespace
+            text_content = re.sub(r'\s+', ' ', text_content.strip())
+            
+            # Split into paragraphs
+            paragraphs = text_content.split('\n')
+            
+            for para_text in paragraphs:
+                if para_text.strip():
+                    # Create paragraph with normal style
+                    para = Paragraph(para_text.strip(), styles['Normal'])
+                    story.append(para)
+            
+            # Build PDF
+            doc.build(story)
+            
+            print(f"✅ Successfully created PDF using reportlab: {output_path}")
+            return True
+            
+        except ImportError:
+            print("❌ ReportLab not available for PDF conversion")
+            return False
         except Exception as e:
-            print(f"❌ Error converting HTML to PDF: {str(e)}")
+            print(f"❌ Error converting to PDF with ReportLab: {str(e)}")
             return False
     
     def convert_docx_to_html(self, docx_path: str) -> str:
