@@ -669,8 +669,28 @@ class MailMergeProcessor:
             # Try LibreOffice first (best formatting preservation on Linux)
             try:
                 import subprocess
+                print("   🔄 Attempting LibreOffice conversion...")
+                
+                # Check if LibreOffice is available
+                check_cmd = ['which', 'libreoffice']
+                check_result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=10)
+                
+                if check_result.returncode == 0:
+                    print(f"   ✅ LibreOffice found at: {check_result.stdout.strip()}")
+                else:
+                    print("   ❌ LibreOffice not found in PATH")
+                    raise FileNotFoundError("LibreOffice not found")
+                
+                # Run the conversion
                 cmd = ['libreoffice', '--headless', '--convert-to', 'pdf', '--outdir', os.path.dirname(pdf_path), word_path]
+                print(f"   🔄 Running: {' '.join(cmd)}")
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                
+                print(f"   📊 LibreOffice return code: {result.returncode}")
+                if result.stdout:
+                    print(f"   📤 LibreOffice stdout: {result.stdout}")
+                if result.stderr:
+                    print(f"   📤 LibreOffice stderr: {result.stderr}")
                 
                 if result.returncode == 0:
                     # LibreOffice creates PDF with same base name
@@ -679,32 +699,49 @@ class MailMergeProcessor:
                         os.path.splitext(os.path.basename(word_path))[0] + '.pdf'
                     )
                     
+                    print(f"   📁 Looking for PDF at: {expected_pdf}")
+                    
                     if expected_pdf != pdf_path and os.path.exists(expected_pdf):
                         import shutil
                         shutil.move(expected_pdf, pdf_path)
+                        print(f"   ✅ Moved PDF to: {pdf_path}")
                     
                     if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
                         print("   ✅ LibreOffice conversion - formatting preserved!")
                         return True
-            except:
-                pass
+                    else:
+                        print(f"   ❌ PDF not found or empty at: {pdf_path}")
+                else:
+                    print(f"   ❌ LibreOffice failed with code: {result.returncode}")
+                    
+            except subprocess.TimeoutExpired:
+                print("   ❌ LibreOffice conversion timed out")
+            except FileNotFoundError:
+                print("   ❌ LibreOffice not installed")
+            except Exception as e:
+                print(f"   ❌ LibreOffice error: {str(e)}")
             
             # Try docx2pdf (best formatting preservation on Windows)
             try:
+                print("   🔄 Attempting docx2pdf conversion...")
                 from docx2pdf import convert
                 convert(word_path, pdf_path)
                 if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
                     print("   ✅ docx2pdf conversion - formatting preserved!")
                     return True
-            except:
-                pass
+                else:
+                    print("   ❌ docx2pdf did not create PDF file")
+            except ImportError:
+                print("   ❌ docx2pdf library not available")
+            except Exception as e:
+                print(f"   ❌ docx2pdf error: {str(e)}")
             
             # Try enhanced mammoth conversion with better CSS
             try:
                 print("   ⚠️  Using enhanced HTML conversion...")
                 return self.convert_word_to_pdf_enhanced(word_path, pdf_path)
-            except:
-                pass
+            except Exception as e:
+                print(f"   ❌ Enhanced HTML conversion error: {str(e)}")
                 
             print("   ❌ All conversion methods failed")
             return False
@@ -717,27 +754,20 @@ class MailMergeProcessor:
         """Enhanced Word to PDF with better formatting preservation"""
         try:
             import mammoth
-            from weasyprint import HTML, CSS
-            from docx import Document
+            from weasyprint import HTML
             
-            # Read the Word document to get styles
-            doc = Document(word_path)
+            print("   🔄 Converting DOCX to HTML...")
             
-            # Enhanced conversion with better style preservation
-            transform_options = {
-                "style_map": [
-                    "p[style-name='Heading 1'] => h1:fresh",
-                    "p[style-name='Heading 2'] => h2:fresh",
-                    "p[style-name='Heading 3'] => h3:fresh",
-                    "r[style-name='Strong'] => strong",
-                    "r[style-name='Emphasis'] => em",
-                ]
-            }
-            
-            # Convert DOCX to HTML with enhanced options
+            # Convert DOCX to HTML with basic options
             with open(word_path, "rb") as docx_file:
-                result = mammoth.convert_to_html(docx_file, **transform_options)
+                result = mammoth.convert_to_html(docx_file)
                 html_content = result.value
+            
+            if not html_content or len(html_content) < 10:
+                print("   ❌ HTML conversion produced no content")
+                return False
+            
+            print(f"   ✅ HTML conversion successful ({len(html_content)} characters)")
             
             # Enhanced CSS for better formatting
             enhanced_css = """
@@ -764,11 +794,9 @@ class MailMergeProcessor:
                 }
                 strong, b {
                     font-weight: bold;
-                    color: inherit;
                 }
                 em, i {
                     font-style: italic;
-                    color: inherit;
                 }
                 table {
                     border-collapse: collapse;
@@ -785,28 +813,21 @@ class MailMergeProcessor:
                     background-color: #F2F2F2;
                     font-weight: bold;
                 }
-                /* Try to preserve some colors */
-                span[style*="color"] {
-                    /* Inline color styles should be preserved */
-                }
-                .page-break {
-                    page-break-before: always;
-                }
             """
             
             # Create full HTML document
-            full_html = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="utf-8">
-                <style>{enhanced_css}</style>
-            </head>
-            <body>
-                {html_content}
-            </body>
-            </html>
-            """
+            full_html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>{enhanced_css}</style>
+</head>
+<body>
+    {html_content}
+</body>
+</html>"""
+            
+            print("   🔄 Converting HTML to PDF...")
             
             # Convert HTML to PDF with WeasyPrint
             HTML(string=full_html).write_pdf(pdf_path)
@@ -815,10 +836,13 @@ class MailMergeProcessor:
                 print("   ⚠️  Enhanced HTML conversion complete - some formatting may be lost")
                 return True
             else:
+                print("   ❌ PDF file was not created")
                 return False
                 
         except Exception as e:
             print(f"   ❌ Enhanced conversion failed: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def convert_docx_to_pdf_with_word(self, docx_path: str, pdf_path: str) -> bool:
