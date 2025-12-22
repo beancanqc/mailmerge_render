@@ -815,7 +815,8 @@ class MailMergeProcessor:
             print("❌ LibreOffice conversion timed out")
             return False
         except FileNotFoundError:
-            print("ℹ️  LibreOffice not found, falling back to HTML conversion...")
+            print("ℹ️  LibreOffice not found.")
+            print("💡 For better quality: install LibreOffice with 'apt-get install libreoffice-headless'")
             return False
         except Exception as e:
             print(f"❌ LibreOffice conversion error: {str(e)}")
@@ -935,14 +936,19 @@ class MailMergeProcessor:
             
             print(f"✅ Successfully converted DOCX to HTML ({len(html_content)} characters)")
             
-            # Then convert HTML to PDF (this loses formatting)
+            # Then convert HTML to PDF (try multiple methods)
             if self.convert_html_to_pdf(html_content, pdf_path):
                 print(f"⚠️  HTML-to-PDF conversion completed: {pdf_path}")
                 print("⚠️  WARNING: Output PDF has basic formatting only!")
                 return True
+            elif self.convert_html_to_pdf_alternative(html_content, pdf_path):
+                print(f"⚠️  Alternative HTML-to-PDF conversion completed: {pdf_path}")
+                print("⚠️  WARNING: Output PDF has very basic formatting!")
+                return True
             else:
-                print("❌ Failed to convert HTML to PDF")
-                return False
+                print("❌ All HTML-to-PDF conversion methods failed")
+                # As absolute last resort, create a simple text PDF
+                return self.create_basic_text_pdf(html_content, pdf_path)
                 
         except Exception as e:
             print(f"❌ HTML fallback PDF conversion failed: {str(e)}")
@@ -1124,6 +1130,9 @@ class MailMergeProcessor:
             elif self.convert_docx_to_pdf_libreoffice(temp_docx_path, output_path):
                 print("✅ Step 2 Complete: PDF created using LibreOffice (good quality)")
                 conversion_success = True
+            elif self.convert_docx_to_pdf_html_fallback(temp_docx_path, output_path):
+                print("⚠️  Step 2 Complete: PDF created using HTML fallback (basic quality)")
+                conversion_success = True
             else:
                 print("❌ All PDF conversion methods failed")
                 conversion_success = False
@@ -1227,6 +1236,9 @@ class MailMergeProcessor:
                     conversion_success = True
                 elif self.convert_docx_to_pdf_libreoffice(word_path, pdf_path):
                     print(f"   ✅ Converted using LibreOffice: {pdf_filename}")
+                    conversion_success = True
+                elif self.convert_docx_to_pdf_html_fallback(word_path, pdf_path):
+                    print(f"   ⚠️  Converted using HTML fallback: {pdf_filename} (basic quality)")
                     conversion_success = True
                 else:
                     print(f"   ❌ Failed to convert: {pdf_filename}")
