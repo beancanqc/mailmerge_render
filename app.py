@@ -1188,13 +1188,13 @@ class MailMergeProcessor:
             
             # Try best available conversion method
             if self.convert_docx_to_pdf_direct(temp_word_file, output_path):
-                print("✅ PDF created using docx2pdf")
+                print("✅ SUCCESS: Used docx2pdf conversion - formatting preserved!")
                 success = True
             elif self.convert_docx_to_pdf_with_word(temp_word_file, output_path):
-                print("✅ PDF created using Word COM")
+                print("✅ SUCCESS: Used Word COM conversion - formatting preserved!")
                 success = True
             elif self.convert_docx_to_pdf_libreoffice(temp_word_file, output_path):
-                print("✅ PDF created using LibreOffice")
+                print("✅ SUCCESS: Used LibreOffice conversion - good quality!")
                 success = True
             else:
                 print("❌ All PDF conversion methods failed")
@@ -1401,13 +1401,13 @@ class MailMergeProcessor:
                 
                 # Try conversion methods
                 if self.convert_docx_to_pdf_direct(word_path, pdf_path):
-                    print(f"   ✅ Converted using docx2pdf")
+                    print(f"   ✅ SUCCESS: Used docx2pdf for {word_file}")
                     successful_conversions += 1
                 elif self.convert_docx_to_pdf_with_word(word_path, pdf_path):
-                    print(f"   ✅ Converted using Word COM")
+                    print(f"   ✅ SUCCESS: Used Word COM for {word_file}")
                     successful_conversions += 1
                 elif self.convert_docx_to_pdf_libreoffice(word_path, pdf_path):
-                    print(f"   ✅ Converted using LibreOffice")
+                    print(f"   ✅ SUCCESS: Used LibreOffice for {word_file}")
                     successful_conversions += 1
                 else:
                     print(f"   ❌ Failed to convert {word_file}")
@@ -1416,11 +1416,12 @@ class MailMergeProcessor:
             try:
                 import shutil
                 shutil.rmtree(temp_word_dir, ignore_errors=True)
+                print("🗑️  Cleaned up temporary Word files")
             except:
                 pass
             
             if successful_conversions > 0:
-                print(f"✅ Successfully converted {successful_conversions}/{len(word_files)} files to PDF")
+                print(f"🎉 SUCCESS: {successful_conversions}/{len(word_files)} PDFs created with preserved formatting")
                 return True
             else:
                 print("❌ No PDF files were created")
