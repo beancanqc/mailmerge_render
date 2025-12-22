@@ -1102,7 +1102,7 @@ class MailMergeProcessor:
             print("🔄 Step 2: Converting Word document to PDF...")
             success = False
             
-            # Try best conversion methods
+            # Try conversion methods
             if self.convert_docx_to_pdf_direct(temp_word_file, output_path):
                 print("✅ PDF created using docx2pdf (highest quality)")
                 success = True
@@ -1111,6 +1111,9 @@ class MailMergeProcessor:
                 success = True
             elif self.convert_docx_to_pdf_libreoffice(temp_word_file, output_path):
                 print("✅ PDF created using LibreOffice (good quality)")
+                success = True
+            elif self.convert_docx_to_pdf_html_fallback(temp_word_file, output_path):
+                print("⚠️  PDF created using HTML fallback (basic quality)")
                 success = True
             else:
                 print("❌ All PDF conversion methods failed")
@@ -1173,6 +1176,9 @@ class MailMergeProcessor:
                     successful_conversions += 1
                 elif self.convert_docx_to_pdf_libreoffice(word_path, pdf_path):
                     print(f"   ✅ Converted using LibreOffice")
+                    successful_conversions += 1
+                elif self.convert_docx_to_pdf_html_fallback(word_path, pdf_path):
+                    print(f"   ⚠️  Converted using HTML fallback (basic quality)")
                     successful_conversions += 1
                 else:
                     print(f"   ❌ Failed to convert {word_file}")
