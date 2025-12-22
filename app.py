@@ -1073,11 +1073,96 @@ class MailMergeProcessor:
             return False
     
     def convert_docx_to_html(self, docx_path: str) -> str:
-        """Convert a single docx file to HTML using mammoth"""
+        """Convert a single docx file to HTML using mammoth with enhanced styling"""
         try:
             with open(docx_path, "rb") as docx_file:
-                result = mammoth.convert_to_html(docx_file)
-                return result.value
+                # Use mammoth with style map to preserve formatting
+                style_map = """
+                p[style-name='Normal'] => p:fresh
+                p[style-name='Heading 1'] => h1:fresh
+                p[style-name='Heading 2'] => h2:fresh
+                p[style-name='Heading 3'] => h3:fresh
+                r[style-name='Strong'] => strong
+                r[style-name='Emphasis'] => em
+                """
+                
+                result = mammoth.convert_to_html(
+                    docx_file,
+                    style_map=style_map,
+                    include_default_style_map=True
+                )
+                
+                html_content = result.value
+                
+                # Add enhanced CSS styling to preserve Word-like appearance
+                enhanced_html = f"""
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="utf-8">
+                    <style>
+                        body {{
+                            font-family: 'Calibri', 'Arial', sans-serif;
+                            font-size: 11pt;
+                            line-height: 1.4;
+                            color: #000000;
+                            margin: 72pt;
+                            background: white;
+                        }}
+                        h1, h2, h3, h4, h5, h6 {{
+                            color: #1f497d;
+                            margin-top: 12pt;
+                            margin-bottom: 6pt;
+                            font-weight: bold;
+                        }}
+                        h1 {{ font-size: 16pt; }}
+                        h2 {{ font-size: 14pt; }}
+                        h3 {{ font-size: 12pt; }}
+                        p {{
+                            margin: 0 0 6pt 0;
+                            text-align: left;
+                        }}
+                        strong, b {{
+                            font-weight: bold;
+                            color: inherit;
+                        }}
+                        em, i {{
+                            font-style: italic;
+                            color: inherit;
+                        }}
+                        table {{
+                            border-collapse: collapse;
+                            width: 100%;
+                            margin: 6pt 0;
+                            font-size: inherit;
+                        }}
+                        td, th {{
+                            border: 1px solid #000;
+                            padding: 4pt 8pt;
+                            text-align: left;
+                            vertical-align: top;
+                        }}
+                        th {{
+                            background-color: #d9d9d9;
+                            font-weight: bold;
+                        }}
+                        .page-break {{
+                            page-break-before: always;
+                        }}
+                        /* Preserve any inline styles from Word */
+                        span[style] {{
+                            /* Inline styles will be preserved */
+                        }}
+                    </style>
+                </head>
+                <body>
+                    {html_content}
+                </body>
+                </html>
+                """
+                
+                return enhanced_html
+                
         except Exception as e:
             print(f"Error converting docx to HTML: {str(e)}")
             return ""
@@ -1112,12 +1197,166 @@ class MailMergeProcessor:
             elif self.convert_docx_to_pdf_libreoffice(temp_word_file, output_path):
                 print("✅ PDF created using LibreOffice (good quality)")
                 success = True
+            elif self.convert_docx_to_pdf_preserve_formatting(temp_word_file, output_path):
+                print("✅ PDF created with preserved Word formatting")
+                success = True
             elif self.convert_docx_to_pdf_html_fallback(temp_word_file, output_path):
                 print("⚠️  PDF created using HTML fallback (basic quality)")
                 success = True
             else:
                 print("❌ All PDF conversion methods failed")
                 success = False
+            
+            # Clean up temp file
+            try:
+                os.unlink(temp_word_file)
+            except:
+                pass
+            
+            return success
+            
+        except Exception as e:
+            print(f"❌ Error in single PDF generation: {str(e)}")
+            return False
+    def convert_docx_to_pdf_preserve_formatting(self, docx_path: str, pdf_path: str) -> bool:
+        """Convert Word document to PDF while preserving formatting using python-docx + reportlab"""
+        try:
+            print("🔄 Converting Word to PDF with preserved formatting...")
+            
+            from reportlab.pdfgen import canvas
+            from reportlab.lib.pagesizes import letter, A4
+            from reportlab.lib.colors import black, blue, red
+            from reportlab.lib.units import inch
+            from docx import Document
+            from docx.shared import RGBColor
+            
+            # Read the Word document
+            doc = Document(docx_path)
+            
+            # Create PDF
+            c = canvas.Canvas(pdf_path, pagesize=A4)
+            width, height = A4
+            
+            # Starting position
+            x_margin = 72  # 1 inch margin
+            y_position = height - 72  # Start 1 inch from top
+            line_height = 14
+            
+            print(f"   Processing {len(doc.paragraphs)} paragraphs...")
+            
+            for para in doc.paragraphs:
+                # Check for page break
+                if y_position < 72:  # Less than 1 inch from bottom
+                    c.showPage()
+                    y_position = height - 72
+                
+                # Handle empty paragraphs (line breaks)
+                if not para.text.strip():
+                    y_position -= line_height
+                    continue
+                
+                # Process paragraph with formatting
+                para_text = ""
+                x_position = x_margin
+                
+                # Check if paragraph has runs with different formatting
+                if len(para.runs) > 0:
+                    for run in para.runs:
+                        if run.text:
+                            # Set font properties based on run formatting
+                            font_name = "Helvetica"
+                            font_size = 11
+                            
+                            # Handle bold
+                            if run.bold:
+                                font_name = "Helvetica-Bold"
+                            
+                            # Handle italic
+                            if run.italic:
+                                if run.bold:
+                                    font_name = "Helvetica-BoldOblique"
+                                else:
+                                    font_name = "Helvetica-Oblique"
+                            
+                            # Set font color
+                            text_color = black
+                            if run.font.color and run.font.color.rgb:
+                                rgb = run.font.color.rgb
+                                text_color = (rgb.red/255.0, rgb.green/255.0, rgb.blue/255.0)
+                            
+                            # Apply formatting and draw text
+                            c.setFont(font_name, font_size)
+                            c.setFillColor(text_color)
+                            c.drawString(x_position, y_position, run.text)
+                            
+                            # Update x position for next run
+                            text_width = c.stringWidth(run.text, font_name, font_size)
+                            x_position += text_width
+                
+                else:
+                    # Simple paragraph without runs
+                    c.setFont("Helvetica", 11)
+                    c.setFillColor(black)
+                    c.drawString(x_margin, y_position, para.text)
+                
+                y_position -= line_height
+            
+            # Process tables
+            for table in doc.tables:
+                if y_position < 200:  # Need space for table
+                    c.showPage()
+                    y_position = height - 72
+                
+                print(f"   Processing table with {len(table.rows)} rows...")
+                
+                # Calculate column widths
+                available_width = width - (2 * x_margin)
+                col_width = available_width / len(table.columns) if len(table.columns) > 0 else 100
+                
+                # Draw table
+                table_y = y_position
+                for row_idx, row in enumerate(table.rows):
+                    row_x = x_margin
+                    
+                    for col_idx, cell in enumerate(row.cells):
+                        # Draw cell border
+                        c.rect(row_x, table_y - 20, col_width, 20, stroke=1, fill=0)
+                        
+                        # Draw cell text
+                        if cell.text:
+                            c.setFont("Helvetica", 9)
+                            c.setFillColor(black)
+                            # Truncate text if too long
+                            text = cell.text[:int(col_width/6)] + "..." if len(cell.text) > col_width/6 else cell.text
+                            c.drawString(row_x + 2, table_y - 15, text)
+                        
+                        row_x += col_width
+                    
+                    table_y -= 20
+                    
+                    # Check if we need a new page
+                    if table_y < 72:
+                        c.showPage()
+                        table_y = height - 72
+                
+                y_position = table_y - 20
+            
+            # Save the PDF
+            c.save()
+            
+            # Verify PDF was created
+            if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
+                print(f"✅ PDF created with preserved formatting: {pdf_path} ({os.path.getsize(pdf_path):,} bytes)")
+                return True
+            else:
+                print("❌ Failed to create PDF")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error in formatted PDF conversion: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return False
             
             # Clean up temp file
             try:
@@ -1176,6 +1415,9 @@ class MailMergeProcessor:
                     successful_conversions += 1
                 elif self.convert_docx_to_pdf_libreoffice(word_path, pdf_path):
                     print(f"   ✅ Converted using LibreOffice")
+                    successful_conversions += 1
+                elif self.convert_docx_to_pdf_preserve_formatting(word_path, pdf_path):
+                    print(f"   ✅ Converted with preserved formatting")
                     successful_conversions += 1
                 elif self.convert_docx_to_pdf_html_fallback(word_path, pdf_path):
                     print(f"   ⚠️  Converted using HTML fallback (basic quality)")
