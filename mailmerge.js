@@ -25,7 +25,6 @@ document.addEventListener('DOMContentLoaded', function () {
         return;
     }
 
-    // All format options are now supported (Word and PDF)
     // Set default to single-word
     const singleWordOption = document.getElementById('single-word');
     if (singleWordOption) {
@@ -222,21 +221,26 @@ document.addEventListener('DOMContentLoaded', function () {
             formatSelected: formatSelected ? formatSelected.value : 'none'
         });
 
-        if (mergeBtn) {
+        const btnText = mergeBtn ? mergeBtn.querySelector('.merge-btn-text') : null;
+
+        if (mergeBtn && btnText) {
             if (templateProcessing || dataProcessing) {
                 mergeBtn.disabled = true;
-                mergeBtn.textContent = 'Processing files...';
+                mergeBtn.classList.add('processing');
+                btnText.textContent = 'Processing files...';
                 mergeBtn.style.opacity = '0.6';
                 mergeBtn.style.cursor = 'not-allowed';
             } else if (!formatSelected) {
                 mergeBtn.disabled = true;
-                mergeBtn.textContent = 'Select output format';
+                mergeBtn.classList.remove('processing');
+                btnText.textContent = 'Select output format';
                 mergeBtn.style.opacity = '0.6';
                 mergeBtn.style.cursor = 'not-allowed';
             } else {
                 // Enable button - let the click handler check server status
                 mergeBtn.disabled = false;
-                mergeBtn.textContent = 'Start Mail Merge';
+                mergeBtn.classList.remove('processing');
+                btnText.textContent = 'Start Mail Merge';
                 mergeBtn.style.opacity = '1';
                 mergeBtn.style.cursor = 'pointer';
             }
@@ -275,9 +279,13 @@ document.addEventListener('DOMContentLoaded', function () {
                         return;
                     }
 
-                    // Disable button and show processing
+                    // Disable button and show processing with spinner
                     mergeBtn.disabled = true;
-                    mergeBtn.textContent = 'Processing...';
+                    mergeBtn.classList.add('processing');
+                    const btnText = mergeBtn.querySelector('.merge-btn-text');
+                    if (btnText) {
+                        btnText.textContent = 'Processing...';
+                    }
 
                     // Send merge request
                     fetch('/process_merge', {
@@ -317,8 +325,9 @@ document.addEventListener('DOMContentLoaded', function () {
                             alert('Network error during processing');
                         })
                         .finally(() => {
-                            // Re-enable button
+                            // Re-enable button and remove spinner
                             mergeBtn.disabled = false;
+                            mergeBtn.classList.remove('processing');
                             updateMergeButton(); // Update based on current state
                         });
                 })
