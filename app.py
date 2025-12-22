@@ -535,15 +535,66 @@ class MailMergeProcessor:
             return False
     
     def convert_docx_to_pdf_fallback(self, docx_path: str, pdf_path: str) -> bool:
-        """Cross-platform PDF conversion for Linux deployment"""
+        """Cross-platform PDF conversion using LibreOffice headless (Linux/Render environment)"""
         try:
-            print("Using cross-platform PDF conversion (Linux/Render environment)...")
+            print("Using LibreOffice headless for PDF conversion (Linux/Render environment)...")
+            
+            import subprocess
+            import os
+            
+            # Get output directory and filename
+            output_dir = os.path.dirname(pdf_path)
+            
+            # Run LibreOffice headless conversion
+            result = subprocess.run([
+                "libreoffice",
+                "--headless",
+                "--convert-to", "pdf",
+                docx_path,
+                "--outdir", output_dir
+            ], capture_output=True, text=True, timeout=60)
+            
+            if result.returncode == 0:
+                # LibreOffice creates PDF with same name as input but .pdf extension
+                docx_filename = os.path.basename(docx_path)
+                expected_pdf = os.path.join(output_dir, docx_filename.replace('.docx', '.pdf'))
+                
+                # If the generated PDF has a different name than expected, rename it
+                if os.path.exists(expected_pdf) and expected_pdf != pdf_path:
+                    os.rename(expected_pdf, pdf_path)
+                
+                if os.path.exists(pdf_path):
+                    print(f"✅ Successfully created PDF using LibreOffice: {pdf_path}")
+                    return True
+                else:
+                    print(f"❌ LibreOffice conversion completed but PDF not found at expected location")
+                    return False
+            else:
+                print(f"❌ LibreOffice conversion failed: {result.stderr}")
+                # Fallback to HTML-based conversion if LibreOffice fails
+                print("🔄 Trying HTML-based fallback...")
+                return self.convert_html_to_pdf_simple(docx_path, pdf_path)
+                
+        except subprocess.TimeoutExpired:
+            print("❌ LibreOffice conversion timed out")
+            return False
+        except FileNotFoundError:
+            print("ℹ️  LibreOffice not available, trying HTML-based conversion...")
+            return self.convert_html_to_pdf_simple(docx_path, pdf_path)
+        except Exception as e:
+            print(f"❌ LibreOffice conversion error: {str(e)}")
+            return self.convert_html_to_pdf_simple(docx_path, pdf_path)
+    
+    def convert_html_to_pdf_simple(self, docx_path: str, pdf_path: str) -> bool:
+        """Simple HTML to PDF conversion as final fallback"""
+        try:
+            print("Using HTML-based PDF conversion as fallback...")
             html_content = self.convert_docx_to_html(docx_path)
             if html_content:
                 return self.convert_html_to_pdf(html_content, pdf_path)
             return False
         except Exception as e:
-            print(f"❌ Cross-platform PDF conversion failed: {str(e)}")
+            print(f"❌ HTML-based PDF conversion failed: {str(e)}")
             return False
     
     def convert_html_to_pdf(self, html_content: str, output_path: str) -> bool:

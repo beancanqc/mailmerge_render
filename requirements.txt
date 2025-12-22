@@ -10,6 +10,7 @@ python-docx==0.8.11
 openpyxl==3.1.2
 
 # Cross-platform PDF generation for Linux deployment
+# Note: LibreOffice installed via aptfile for best PDF quality
 reportlab==4.0.9
 mammoth==1.11.0
 
