@@ -492,243 +492,150 @@ class MailMergeProcessor:
         except Exception as e:
             print(f"Error creating multiple Word files: {str(e)}")
             return False
-    
-    def convert_docx_to_pdf_with_word(self, docx_path: str, pdf_path: str) -> bool:
-        """Convert DOCX to PDF using Microsoft Word COM automation (Print to PDF simulation)"""
+
+    def convert_docx_to_pdf_pandoc(self, docx_path: str, pdf_path: str) -> bool:
+        """Convert DOCX to PDF using Pandoc"""
         try:
-            import win32com.client
+            import subprocess
             
-            print(f"Converting {docx_path} to PDF using Microsoft Word (Print to PDF)...")
+            print(f"🔄 Starting Pandoc conversion: {docx_path} → {pdf_path}")
             
-            # Start Word application
-            word = win32com.client.Dispatch("Word.Application")
-            word.Visible = False  # Run Word in background
+            # Check if input file exists
+            if not os.path.exists(docx_path):
+                print(f"❌ Input DOCX file not found: {docx_path}")
+                return False
             
-            # Open the document
-            doc = word.Documents.Open(docx_path)
+            print(f"ℹ️ Input file size: {os.path.getsize(docx_path)} bytes")
             
-            # Save as PDF (simulate Print to PDF)
-            # wdFormatPDF = 17
-            doc.SaveAs2(pdf_path, FileFormat=17)
+            # Ensure output directory exists
+            output_dir = os.path.dirname(pdf_path)
+            os.makedirs(output_dir, exist_ok=True)
             
-            # Close document and quit Word
-            doc.Close()
-            word.Quit()
-            
-            print(f"✅ Successfully converted to PDF: {pdf_path}")
-            return True
-            
-        except ImportError:
-            print("ℹ️  Microsoft Word not available (Linux environment). Using cross-platform conversion...")
-            return False
-        except Exception as e:
-            print(f"❌ Error converting to PDF with Word: {str(e)}")
+            # Check if pandoc is available
             try:
-                # Try to clean up if something went wrong
-                if 'doc' in locals():
-                    doc.Close()
-                if 'word' in locals():
-                    word.Quit()
-            except:
-                pass
-            return False
-    
-    def convert_docx_to_pdf_windows_server(self, docx_path: str, pdf_path: str) -> bool:
-        """Convert DOCX to PDF using external Windows server with Microsoft Word"""
-        try:
-            print(f"Converting {docx_path} to PDF using Windows server...")
+                version_result = subprocess.run(['pandoc', '--version'], capture_output=True, text=True, timeout=10)
+                if version_result.returncode == 0:
+                    print(f"✅ Pandoc available: {version_result.stdout.split()[1]}")
+                else:
+                    print(f"❌ Pandoc version check failed: {version_result.stderr}")
+                    return False
+            except FileNotFoundError:
+                print("❌ Pandoc not found - check aptfile installation")
+                return False
+            except Exception as e:
+                print(f"❌ Pandoc version check error: {e}")
+                return False
             
-            # Read the DOCX file
-            with open(docx_path, 'rb') as f:
-                docx_content = f.read()
+            # Use Pandoc with wkhtmltopdf engine for best compatibility
+            cmd = [
+                'pandoc',
+                docx_path,
+                '-o', pdf_path,
+                '--pdf-engine=wkhtmltopdf',
+                '--pdf-engine-opt=--enable-local-file-access',
+                '--pdf-engine-opt=--page-size', 'A4'
+            ]
             
-            # Prepare request to Windows server
-            files = {'docx_file': ('document.docx', docx_content, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')}
-            headers = {'Authorization': f'Bearer {WINDOWS_SERVER_TOKEN}'}
+            print(f"🚀 Running command: {' '.join(cmd)}")
             
-            # Send conversion request
-            response = requests.post(
-                f"{WINDOWS_PDF_SERVER}/convert-to-pdf",
-                files=files,
-                headers=headers,
-                timeout=30
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=60
             )
             
-            if response.status_code == 200:
-                # Save the PDF content
-                with open(pdf_path, 'wb') as f:
-                    f.write(response.content)
-                print(f"✅ Successfully converted to PDF via Windows server: {pdf_path}")
-                return True
-            else:
-                print(f"❌ Windows server error: {response.status_code} - {response.text}")
-                return False
-                
-        except requests.RequestException as e:
-            print(f"❌ Network error connecting to Windows server: {str(e)}")
-            return False
-        except Exception as e:
-            print(f"❌ Error in Windows server conversion: {str(e)}")
-            return False
-
-    def convert_docx_to_pdf_fallback(self, docx_path: str, pdf_path: str) -> bool:
-        """Cross-platform PDF conversion using LibreOffice headless (Linux/Render environment)"""
-        try:
-            print("Using LibreOffice headless for PDF conversion (Linux/Render environment)...")
-            
-            import subprocess
-            import os
-            
-            # Get output directory and filename
-            output_dir = os.path.dirname(pdf_path)
-            
-            # Run LibreOffice headless conversion
-            result = subprocess.run([
-                "libreoffice",
-                "--headless",
-                "--convert-to", "pdf",
-                docx_path,
-                "--outdir", output_dir
-            ], capture_output=True, text=True, timeout=60)
+            print(f"ℹ️ Pandoc exit code: {result.returncode}")
+            if result.stdout:
+                print(f"📝 Pandoc stdout: {result.stdout}")
+            if result.stderr:
+                print(f"⚠️ Pandoc stderr: {result.stderr}")
             
             if result.returncode == 0:
-                # LibreOffice creates PDF with same name as input but .pdf extension
-                docx_filename = os.path.basename(docx_path)
-                expected_pdf = os.path.join(output_dir, docx_filename.replace('.docx', '.pdf'))
-                
-                # If the generated PDF has a different name than expected, rename it
-                if os.path.exists(expected_pdf) and expected_pdf != pdf_path:
-                    os.rename(expected_pdf, pdf_path)
-                
                 if os.path.exists(pdf_path):
-                    print(f"✅ Successfully created PDF using LibreOffice: {pdf_path}")
+                    pdf_size = os.path.getsize(pdf_path)
+                    print(f"✅ Successfully converted to PDF: {pdf_path} ({pdf_size} bytes)")
                     return True
                 else:
-                    print(f"❌ LibreOffice conversion completed but PDF not found at expected location")
+                    print(f"❌ Pandoc completed but PDF not found: {pdf_path}")
                     return False
             else:
-                print(f"❌ LibreOffice conversion failed: {result.stderr}")
-                # Fallback to HTML-based conversion if LibreOffice fails
-                print("🔄 Trying HTML-based fallback...")
-                return self.convert_html_to_pdf_simple(docx_path, pdf_path)
+                print(f"❌ Pandoc conversion failed, trying LaTeX fallback...")
+                # Try fallback with different engine
+                return self.convert_docx_to_pdf_pandoc_latex(docx_path, pdf_path)
                 
         except subprocess.TimeoutExpired:
-            print("❌ LibreOffice conversion timed out")
+            print("❌ Pandoc conversion timed out (60s limit)")
             return False
-        except FileNotFoundError:
-            print("ℹ️  LibreOffice not available, trying HTML-based conversion...")
-            return self.convert_html_to_pdf_simple(docx_path, pdf_path)
         except Exception as e:
-            print(f"❌ LibreOffice conversion error: {str(e)}")
-            return self.convert_html_to_pdf_simple(docx_path, pdf_path)
-    
-    def convert_html_to_pdf_simple(self, docx_path: str, pdf_path: str) -> bool:
-        """Simple HTML to PDF conversion as final fallback"""
+            print(f"❌ Error in Pandoc conversion: {str(e)}")
+            import traceback
+            print(f"🔍 Stack trace: {traceback.format_exc()}")
+            return False
+
+    def convert_docx_to_pdf_pandoc_latex(self, docx_path: str, pdf_path: str) -> bool:
+        """Fallback Pandoc conversion using LaTeX engine"""
         try:
-            print("Using HTML-based PDF conversion as fallback...")
-            html_content = self.convert_docx_to_html(docx_path)
-            if html_content:
-                return self.convert_html_to_pdf(html_content, pdf_path)
+            import subprocess
+            
+            print(f"🔄 Trying Pandoc with LaTeX engine as fallback...")
+            
+            cmd = [
+                'pandoc',
+                docx_path,
+                '-o', pdf_path,
+                '--pdf-engine=pdflatex'
+            ]
+            
+            print(f"🚀 Running LaTeX command: {' '.join(cmd)}")
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=90
+            )
+            
+            print(f"ℹ️ LaTeX exit code: {result.returncode}")
+            if result.stdout:
+                print(f"📝 LaTeX stdout: {result.stdout}")
+            if result.stderr:
+                print(f"⚠️ LaTeX stderr: {result.stderr}")
+            
+            if result.returncode == 0 and os.path.exists(pdf_path):
+                pdf_size = os.path.getsize(pdf_path)
+                print(f"✅ Successfully converted to PDF using LaTeX: {pdf_path} ({pdf_size} bytes)")
+                return True
+            else:
+                print(f"❌ LaTeX fallback also failed")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            print("❌ LaTeX conversion timed out (90s limit)")
             return False
         except Exception as e:
-            print(f"❌ HTML-based PDF conversion failed: {str(e)}")
+            print(f"❌ LaTeX fallback error: {str(e)}")
             return False
+
+    # Legacy methods - deprecated, using Pandoc now
+    def convert_docx_to_pdf_with_word(self, docx_path: str, pdf_path: str) -> bool:
+        """DEPRECATED: Use convert_docx_to_pdf_pandoc instead"""
+        print("❌ Word COM method not available on Linux - use Pandoc instead")
+        return self.convert_docx_to_pdf_pandoc(docx_path, pdf_path)
     
-    def convert_html_to_pdf(self, html_content: str, output_path: str) -> bool:
-        """Convert HTML content to PDF using reportlab (Linux compatible)"""
-        try:
-            from reportlab.pdfgen import canvas
-            from reportlab.lib.pagesizes import letter
-            from reportlab.lib.styles import getSampleStyleSheet
-            from reportlab.platypus import SimpleDocTemplate, Paragraph
-            from reportlab.lib.units import inch
-            import html
-            
-            print("Creating PDF using reportlab (cross-platform)...")
-            
-            # Create a PDF document
-            doc = SimpleDocTemplate(output_path, pagesize=letter,
-                                  rightMargin=0.75*inch, leftMargin=0.75*inch,
-                                  topMargin=0.75*inch, bottomMargin=0.75*inch)
-            
-            # Get styles
-            styles = getSampleStyleSheet()
-            story = []
-            
-            # Clean HTML content - strip HTML tags and convert to plain text
-            import re
-            # Remove HTML tags
-            text_content = re.sub(r'<[^>]+>', '', html_content)
-            # Decode HTML entities
-            text_content = html.unescape(text_content)
-            # Clean up extra whitespace
-            text_content = re.sub(r'\s+', ' ', text_content.strip())
-            
-            # Split into paragraphs
-            paragraphs = text_content.split('\n')
-            
-            for para_text in paragraphs:
-                if para_text.strip():
-                    # Create paragraph with normal style
-                    para = Paragraph(para_text.strip(), styles['Normal'])
-                    story.append(para)
-            
-            # Build PDF
-            doc.build(story)
-            
-            print(f"✅ Successfully created PDF using reportlab: {output_path}")
-            return True
-            
-        except ImportError:
-            print("❌ ReportLab not available for PDF conversion")
-            return False
-        except Exception as e:
-            print(f"❌ Error converting to PDF with ReportLab: {str(e)}")
-            return False
-    
-    def convert_docx_to_html(self, docx_path: str) -> str:
-        """Convert a single docx file to HTML using mammoth"""
-        try:
-            with open(docx_path, "rb") as docx_file:
-                result = mammoth.convert_to_html(docx_file)
-                return result.value
-        except Exception as e:
-            print(f"❌ Error converting docx to HTML: {str(e)}")
-            return ""
+    def convert_docx_to_pdf_windows_server(self, docx_path: str, pdf_path: str) -> bool:
+        """DEPRECATED: Use convert_docx_to_pdf_pandoc instead"""
+        print("❌ Windows server method deprecated - use Pandoc instead")
+        return self.convert_docx_to_pdf_pandoc(docx_path, pdf_path)
+
+    def convert_docx_to_pdf_fallback(self, docx_path: str, pdf_path: str) -> bool:
+        """DEPRECATED: Use convert_docx_to_pdf_pandoc instead"""
+        print("❌ LibreOffice method deprecated - use Pandoc instead")
+        return self.convert_docx_to_pdf_pandoc(docx_path, pdf_path)
 
     def convert_to_pdf(self, docx_path: str, pdf_path: str) -> bool:
-        """Unified PDF conversion with Windows server priority"""
-        # Try Windows server first (production quality)
-        if WINDOWS_PDF_SERVER != 'http://your-windows-server:5001':
-            print("🔄 Trying Windows server for PDF conversion...")
-            if self.convert_docx_to_pdf_windows_server(docx_path, pdf_path):
-                return True
-            print("⚠️ Windows server failed, trying local methods...")
-        
-        # Try Word COM (Windows development)
-        if self.convert_docx_to_pdf_with_word(docx_path, pdf_path):
-            return True
-        
-        # Fallback to LibreOffice (Linux/Render)
-        print("🔄 Word COM failed, trying LibreOffice fallback...")
-        return self.convert_docx_to_pdf_fallback(docx_path, pdf_path)
-
-    def convert_to_pdf(self, docx_path: str, pdf_path: str) -> bool:
-        """Unified PDF conversion with Windows server priority"""
-        # Try Windows server first (production quality)
-        if WINDOWS_PDF_SERVER != 'http://your-windows-server:5001':
-            print("🔄 Trying Windows server for PDF conversion...")
-            if self.convert_docx_to_pdf_windows_server(docx_path, pdf_path):
-                return True
-            print("⚠️ Windows server failed, trying local methods...")
-        
-        # Try Word COM (Windows development)
-        if self.convert_docx_to_pdf_with_word(docx_path, pdf_path):
-            return True
-        
-        # Fallback to LibreOffice (Linux/Render)
-        print("🔄 Word COM failed, trying LibreOffice fallback...")
-        return self.convert_docx_to_pdf_fallback(docx_path, pdf_path)
+        """Unified PDF conversion using Pandoc"""
+        return self.convert_docx_to_pdf_pandoc(docx_path, pdf_path)
 
 
 
