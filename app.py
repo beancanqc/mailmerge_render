@@ -526,14 +526,12 @@ class MailMergeProcessor:
                 print(f"❌ Pandoc version check error: {e}")
                 return False
             
-            # Use Pandoc with wkhtmltopdf engine for best compatibility
+            # Use Pandoc with simplified wkhtmltopdf options
             cmd = [
                 'pandoc',
                 docx_path,
                 '-o', pdf_path,
-                '--pdf-engine=wkhtmltopdf',
-                '--pdf-engine-opt=--enable-local-file-access',
-                '--pdf-engine-opt=--page-size', 'A4'
+                '--pdf-engine=wkhtmltopdf'
             ]
             
             print(f"🚀 Running command: {' '.join(cmd)}")
@@ -560,7 +558,7 @@ class MailMergeProcessor:
                     print(f"❌ Pandoc completed but PDF not found: {pdf_path}")
                     return False
             else:
-                print(f"❌ Pandoc conversion failed, trying LaTeX fallback...")
+                print(f"❌ wkhtmltopdf conversion failed, trying LaTeX fallback...")
                 # Try fallback with different engine
                 return self.convert_docx_to_pdf_pandoc_latex(docx_path, pdf_path)
                 
@@ -579,6 +577,19 @@ class MailMergeProcessor:
             import subprocess
             
             print(f"🔄 Trying Pandoc with LaTeX engine as fallback...")
+            
+            # Check if pdflatex is available
+            try:
+                latex_check = subprocess.run(['pdflatex', '--version'], capture_output=True, text=True, timeout=10)
+                if latex_check.returncode == 0:
+                    print("✅ pdflatex is available")
+                else:
+                    print(f"❌ pdflatex check failed: {latex_check.stderr}")
+                    print("🔄 Trying simple HTML-to-PDF conversion...")
+                    return self.convert_docx_to_pdf_simple_html(docx_path, pdf_path)
+            except FileNotFoundError:
+                print("❌ pdflatex not found - trying HTML conversion...")
+                return self.convert_docx_to_pdf_simple_html(docx_path, pdf_path)
             
             cmd = [
                 'pandoc',
@@ -607,14 +618,87 @@ class MailMergeProcessor:
                 print(f"✅ Successfully converted to PDF using LaTeX: {pdf_path} ({pdf_size} bytes)")
                 return True
             else:
-                print(f"❌ LaTeX fallback also failed")
-                return False
+                print(f"❌ LaTeX fallback also failed, trying HTML conversion...")
+                return self.convert_docx_to_pdf_simple_html(docx_path, pdf_path)
                 
         except subprocess.TimeoutExpired:
             print("❌ LaTeX conversion timed out (90s limit)")
-            return False
+            return self.convert_docx_to_pdf_simple_html(docx_path, pdf_path)
         except Exception as e:
             print(f"❌ LaTeX fallback error: {str(e)}")
+            return self.convert_docx_to_pdf_simple_html(docx_path, pdf_path)
+
+    def convert_docx_to_pdf_simple_html(self, docx_path: str, pdf_path: str) -> bool:
+        """Simple HTML-to-PDF conversion as final fallback"""
+        try:
+            import subprocess
+            
+            print(f"🔄 Using simple HTML-to-PDF conversion...")
+            
+            # Convert DOCX to HTML first, then HTML to PDF
+            html_path = pdf_path.replace('.pdf', '.html')
+            
+            # Step 1: DOCX to HTML
+            html_cmd = [
+                'pandoc',
+                docx_path,
+                '-o', html_path,
+                '-t', 'html'
+            ]
+            
+            print(f"🚀 Converting to HTML: {' '.join(html_cmd)}")
+            
+            html_result = subprocess.run(
+                html_cmd,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if html_result.returncode != 0 or not os.path.exists(html_path):
+                print(f"❌ HTML conversion failed: {html_result.stderr}")
+                return False
+            
+            # Step 2: HTML to PDF using wkhtmltopdf directly
+            pdf_cmd = [
+                'wkhtmltopdf',
+                '--page-size', 'A4',
+                '--margin-top', '1in',
+                '--margin-bottom', '1in',
+                '--margin-left', '1in', 
+                '--margin-right', '1in',
+                html_path,
+                pdf_path
+            ]
+            
+            print(f"🚀 Converting HTML to PDF: {' '.join(pdf_cmd)}")
+            
+            pdf_result = subprocess.run(
+                pdf_cmd,
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+            
+            # Cleanup HTML file
+            try:
+                os.unlink(html_path)
+            except:
+                pass
+            
+            if pdf_result.returncode == 0 and os.path.exists(pdf_path):
+                pdf_size = os.path.getsize(pdf_path)
+                print(f"✅ Successfully converted to PDF using HTML method: {pdf_path} ({pdf_size} bytes)")
+                return True
+            else:
+                print(f"❌ HTML-to-PDF conversion failed: {pdf_result.stderr}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            print("❌ HTML conversion timed out")
+            return False
+        except Exception as e:
+            print(f"❌ HTML conversion error: {str(e)}")
             return False
 
     # Legacy methods - deprecated, using Pandoc now
