@@ -9,8 +9,9 @@ werkzeug==2.3.7
 python-docx==0.8.11
 openpyxl==3.1.2
 
-# PDF conversion via Word COM automation
-pywin32==306
+# Cross-platform PDF generation for Linux deployment
+weasyprint==62.3
+mammoth==1.11.0
 
 # Production server
 gunicorn==21.2.0

@@ -18,6 +18,7 @@ from docx.enum.text import WD_BREAK
 import openpyxl
 import re
 from typing import List, Dict, Any, Optional
+import mammoth
 
 from jinja2 import Template
 
@@ -519,7 +520,7 @@ class MailMergeProcessor:
             return True
             
         except ImportError:
-            print("❌ PDF generation requires Microsoft Word (pywin32 not available)")
+            print("ℹ️  Microsoft Word not available (Linux environment). Using cross-platform conversion...")
             return False
         except Exception as e:
             print(f"❌ Error converting to PDF with Word: {str(e)}")
@@ -532,6 +533,84 @@ class MailMergeProcessor:
             except:
                 pass
             return False
+    
+    def convert_docx_to_pdf_fallback(self, docx_path: str, pdf_path: str) -> bool:
+        """Cross-platform PDF conversion for Linux deployment"""
+        try:
+            print("Using cross-platform PDF conversion (Linux/Render environment)...")
+            html_content = self.convert_docx_to_html(docx_path)
+            if html_content:
+                return self.convert_html_to_pdf(html_content, pdf_path)
+            return False
+        except Exception as e:
+            print(f"❌ Cross-platform PDF conversion failed: {str(e)}")
+            return False
+    
+    def convert_html_to_pdf(self, html_content: str, output_path: str) -> bool:
+        """Convert HTML content to PDF using weasyprint (Linux compatible)"""
+        try:
+            # Add basic CSS for better PDF formatting
+            html_with_css = f"""
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <style>
+                    body {{
+                        font-family: Arial, sans-serif;
+                        font-size: 12pt;
+                        line-height: 1.5;
+                        margin: 1in;
+                    }}
+                    h1, h2, h3, h4, h5, h6 {{
+                        color: #333;
+                        margin-top: 1.2em;
+                        margin-bottom: 0.6em;
+                    }}
+                    p {{
+                        margin-bottom: 1em;
+                    }}
+                    table {{
+                        border-collapse: collapse;
+                        width: 100%;
+                        margin-bottom: 1em;
+                    }}
+                    th, td {{
+                        border: 1px solid #ddd;
+                        padding: 8px;
+                        text-align: left;
+                    }}
+                    th {{
+                        background-color: #f2f2f2;
+                    }}
+                </style>
+            </head>
+            <body>
+                {html_content}
+            </body>
+            </html>
+            """
+            
+            try:
+                import weasyprint
+                weasyprint.HTML(string=html_with_css).write_pdf(output_path)
+                print(f"✅ Successfully created PDF using weasyprint: {output_path}")
+                return True
+            except ImportError:
+                print("❌ WeasyPrint not available for PDF conversion")
+                return False
+        except Exception as e:
+            print(f"❌ Error converting HTML to PDF: {str(e)}")
+            return False
+    
+    def convert_docx_to_html(self, docx_path: str) -> str:
+        """Convert a single docx file to HTML using mammoth"""
+        try:
+            with open(docx_path, "rb") as docx_file:
+                result = mammoth.convert_to_html(docx_file)
+                return result.value
+        except Exception as e:
+            print(f"❌ Error converting docx to HTML: {str(e)}")
+            return ""
 
 
 
@@ -559,18 +638,17 @@ class MailMergeProcessor:
             print(f"✅ Created temporary Word document: {temp_docx.name}")
             
             # Convert to PDF using Word COM automation (Print to PDF simulation)
-            success = self.convert_docx_to_pdf_with_word(temp_docx.name, output_path)
-            
-            # Clean up temp file
-            try:
-                os.unlink(temp_docx.name)
-            except:
-                pass
-                
-            if success:
-                print(f"✅ Successfully created single PDF document: {output_path}")
+            if self.convert_docx_to_pdf_with_word(temp_docx.name, output_path):
+                success = True
+                print(f"✅ Successfully created single PDF document using Word: {output_path}")
             else:
-                print("❌ PDF generation requires Microsoft Word")
+                # Fallback for Linux/Render environment
+                print("🔄 Trying cross-platform PDF conversion...")
+                success = self.convert_docx_to_pdf_fallback(temp_docx.name, output_path)
+                if success:
+                    print(f"✅ Successfully created single PDF document using fallback: {output_path}")
+                else:
+                    print("❌ PDF generation failed - no conversion method available")
                 
             return success
             
@@ -615,6 +693,9 @@ class MailMergeProcessor:
                 if self.convert_docx_to_pdf_with_word(word_path, pdf_path):
                     success_count += 1
                     print(f"✅ Created: {pdf_file}")
+                elif self.convert_docx_to_pdf_fallback(word_path, pdf_path):
+                    success_count += 1
+                    print(f"✅ Created (fallback): {pdf_file}")
                 else:
                     print(f"❌ Failed to convert: {word_file}")
             
@@ -631,7 +712,7 @@ class MailMergeProcessor:
                 print(f"⚠️  Created {success_count} of {len(word_files)} PDF files")
                 return True
             else:
-                print("❌ PDF generation requires Microsoft Word")
+                print("❌ PDF generation failed - no conversion method available")
                 return False
             
         except Exception as e:
