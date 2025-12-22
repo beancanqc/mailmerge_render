@@ -1083,101 +1083,63 @@ class MailMergeProcessor:
             return ""
 
     def generate_single_pdf(self, output_path: str) -> bool:
-        """Generate a single PDF document using the two-step approach: Word first, then PDF"""
+        """Generate a single PDF by first creating a Word file, then converting to PDF"""
         try:
-            if not self.template_path or not self.data:
-                raise ValueError("Template and data must be loaded first")
-            
             print(f"📄 Creating single PDF document with {len(self.data)} records...")
-            print("🔄 Step 1: Generating Word document using proven Word generation method...")
             
-            # Create temporary Word file using the same method as "1 Word file" option
-            temp_docx_path = tempfile.NamedTemporaryFile(suffix='.docx', delete=False).name
+            # Step 1: Create Word document using the PROVEN working method
+            print("🔄 Step 1: Creating Word document (same as '1 Word file' option)...")
+            temp_word_file = tempfile.NamedTemporaryFile(suffix='.docx', delete=False).name
             
-            # Use the exact same method as the working "1 Word file" option
-            if not self.generate_single_word(temp_docx_path):
-                print("❌ Failed to create Word document using generate_single_word method")
-                try:
-                    os.unlink(temp_docx_path)
-                except:
-                    pass
+            # Use the exact same method that works for "1 Word file"
+            if not self.generate_single_word(temp_word_file):
+                print("❌ Failed to create Word document")
                 return False
             
-            # Verify Word document was created successfully
-            if not os.path.exists(temp_docx_path) or os.path.getsize(temp_docx_path) == 0:
-                print("❌ Word document was not created or is empty")
-                try:
-                    os.unlink(temp_docx_path)
-                except:
-                    pass
-                return False
+            print(f"✅ Step 1 Complete: Word document created ({os.path.getsize(temp_word_file):,} bytes)")
             
-            word_size = os.path.getsize(temp_docx_path)
-            print(f"✅ Step 1 Complete: Word document created successfully ({word_size:,} bytes)")
-            
+            # Step 2: Convert the perfect Word file to PDF
             print("🔄 Step 2: Converting Word document to PDF...")
+            success = False
             
-            # Now convert the working Word document to PDF
-            conversion_success = False
-            
-            # Try conversion methods in order of quality
-            if self.convert_docx_to_pdf_direct(temp_docx_path, output_path):
-                print("✅ Step 2 Complete: PDF created using docx2pdf (highest quality)")
-                conversion_success = True
-            elif self.convert_docx_to_pdf_with_word(temp_docx_path, output_path):
-                print("✅ Step 2 Complete: PDF created using Word COM (high quality)")  
-                conversion_success = True
-            elif self.convert_docx_to_pdf_libreoffice(temp_docx_path, output_path):
-                print("✅ Step 2 Complete: PDF created using LibreOffice (good quality)")
-                conversion_success = True
-            elif self.convert_docx_to_pdf_html_fallback(temp_docx_path, output_path):
-                print("⚠️  Step 2 Complete: PDF created using HTML fallback (basic quality)")
-                conversion_success = True
+            # Try best conversion methods
+            if self.convert_docx_to_pdf_direct(temp_word_file, output_path):
+                print("✅ PDF created using docx2pdf (highest quality)")
+                success = True
+            elif self.convert_docx_to_pdf_with_word(temp_word_file, output_path):
+                print("✅ PDF created using Word COM (high quality)")
+                success = True
+            elif self.convert_docx_to_pdf_libreoffice(temp_word_file, output_path):
+                print("✅ PDF created using LibreOffice (good quality)")
+                success = True
             else:
                 print("❌ All PDF conversion methods failed")
-                conversion_success = False
+                success = False
             
-            # Clean up temporary Word file
+            # Clean up temp file
             try:
-                os.unlink(temp_docx_path)
-                print("🗑️  Cleaned up temporary Word file")
+                os.unlink(temp_word_file)
             except:
                 pass
             
-            if conversion_success:
-                # Verify final PDF
-                if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                    pdf_size = os.path.getsize(output_path)
-                    print(f"🎉 SUCCESS: Single PDF created successfully ({pdf_size:,} bytes)")
-                    return True
-                else:
-                    print("❌ PDF file verification failed")
-                    return False
-            else:
-                print("❌ PDF conversion failed")
-                return False
-                
+            return success
+            
         except Exception as e:
-            print(f"❌ Error creating single PDF document: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            print(f"❌ Error in single PDF generation: {str(e)}")
             return False
     
     def generate_multiple_pdf(self, output_dir: str) -> bool:
-        """Generate multiple PDF documents using the two-step approach: Word files first, then PDFs"""
+        """Generate multiple PDFs by first creating Word files, then converting each to PDF"""
         try:
-            if not self.template_path or not self.data:
-                raise ValueError("Template and data must be loaded first")
-            
             print(f"📑 Creating multiple PDF documents for {len(self.data)} records...")
-            print("🔄 Step 1: Generating Word documents using proven Word generation method...")
             
-            # First, create a temporary directory for Word files  
+            # Step 1: Create Word files using the PROVEN working method
+            print("🔄 Step 1: Creating Word files (same as 'Multiple Word files' option)...")
             temp_word_dir = tempfile.mkdtemp(prefix='mailmerge_word_')
             
-            # Use the exact same method as the working "Multiple Word files" option
+            # Use the exact same method that works for "Multiple Word files"
             if not self.generate_multiple_word(temp_word_dir):
-                print("❌ Failed to create Word documents using generate_multiple_word method")
+                print("❌ Failed to create Word files")
                 try:
                     import shutil
                     shutil.rmtree(temp_word_dir, ignore_errors=True)
@@ -1185,87 +1147,52 @@ class MailMergeProcessor:
                     pass
                 return False
             
-            print(f"✅ Step 1 Complete: Word documents created in {temp_word_dir}")
+            print(f"✅ Step 1 Complete: Word files created successfully")
             
-            # List all generated Word files
-            word_files = []
-            try:
-                for filename in os.listdir(temp_word_dir):
-                    if filename.endswith('.docx'):
-                        word_path = os.path.join(temp_word_dir, filename)
-                        if os.path.getsize(word_path) > 0:
-                            word_files.append((word_path, filename))
-            except Exception as e:
-                print(f"❌ Error listing Word files: {e}")
-                return False
-            
-            if not word_files:
-                print("❌ No Word files were generated")
-                try:
-                    import shutil
-                    shutil.rmtree(temp_word_dir, ignore_errors=True)
-                except:
-                    pass
-                return False
-            
-            print(f"✅ Found {len(word_files)} Word documents to convert")
-            
-            print("🔄 Step 2: Converting Word documents to PDFs...")
-            
-            # Ensure output directory exists  
+            # Step 2: Convert each Word file to PDF
+            print("🔄 Step 2: Converting each Word file to PDF...")
             os.makedirs(output_dir, exist_ok=True)
             
+            # Get all Word files
+            word_files = [f for f in os.listdir(temp_word_dir) if f.endswith('.docx')]
             successful_conversions = 0
             
-            # Convert each Word file to PDF
-            for i, (word_path, word_filename) in enumerate(word_files, 1):
-                print(f"🔄 Converting {i}/{len(word_files)}: {word_filename}")
+            for word_file in word_files:
+                word_path = os.path.join(temp_word_dir, word_file)
+                pdf_file = word_file.replace('.docx', '.pdf')
+                pdf_path = os.path.join(output_dir, pdf_file)
                 
-                # Create PDF filename (replace .docx with .pdf)
-                pdf_filename = word_filename.replace('.docx', '.pdf') 
-                pdf_path = os.path.join(output_dir, pdf_filename)
+                print(f"   Converting: {word_file} → {pdf_file}")
                 
-                # Try conversion methods in order of quality
-                conversion_success = False
-                
+                # Try conversion methods
                 if self.convert_docx_to_pdf_direct(word_path, pdf_path):
-                    print(f"   ✅ Converted using docx2pdf: {pdf_filename}")
-                    conversion_success = True
-                elif self.convert_docx_to_pdf_with_word(word_path, pdf_path):
-                    print(f"   ✅ Converted using Word COM: {pdf_filename}")
-                    conversion_success = True
-                elif self.convert_docx_to_pdf_libreoffice(word_path, pdf_path):
-                    print(f"   ✅ Converted using LibreOffice: {pdf_filename}")
-                    conversion_success = True
-                elif self.convert_docx_to_pdf_html_fallback(word_path, pdf_path):
-                    print(f"   ⚠️  Converted using HTML fallback: {pdf_filename} (basic quality)")
-                    conversion_success = True
-                else:
-                    print(f"   ❌ Failed to convert: {pdf_filename}")
-                    conversion_success = False
-                
-                if conversion_success:
+                    print(f"   ✅ Converted using docx2pdf")
                     successful_conversions += 1
+                elif self.convert_docx_to_pdf_with_word(word_path, pdf_path):
+                    print(f"   ✅ Converted using Word COM")
+                    successful_conversions += 1
+                elif self.convert_docx_to_pdf_libreoffice(word_path, pdf_path):
+                    print(f"   ✅ Converted using LibreOffice")
+                    successful_conversions += 1
+                else:
+                    print(f"   ❌ Failed to convert {word_file}")
             
-            # Clean up temporary Word directory
+            # Clean up temp Word files
             try:
                 import shutil
                 shutil.rmtree(temp_word_dir, ignore_errors=True)
-                print("🗑️  Cleaned up temporary Word files")
             except:
                 pass
             
             if successful_conversions > 0:
-                print(f"🎉 SUCCESS: {successful_conversions}/{len(word_files)} PDFs created successfully")
+                print(f"✅ Successfully converted {successful_conversions}/{len(word_files)} files to PDF")
                 return True
             else:
-                print("❌ No PDF files were created successfully")
+                print("❌ No PDF files were created")
                 return False
                 
         except Exception as e:
-            print(f"❌ Error creating multiple PDF files: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            print(f"❌ Error in multiple PDF generation: {str(e)}")
             return False
     
     def process_merge(self, output_format: str, output_path: str) -> bool:
