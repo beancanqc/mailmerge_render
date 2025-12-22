@@ -9,8 +9,8 @@ werkzeug==2.3.7
 python-docx==0.8.11
 openpyxl==3.1.2
 
-# PDF conversion (pure Python - no external dependencies)
-mammoth==1.11.0
+# PDF conversion via Word COM automation
+pywin32==306
 
 # Production server
 gunicorn==21.2.0
