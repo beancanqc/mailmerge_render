@@ -767,7 +767,11 @@ class MailMergeProcessor:
                 import traceback
                 traceback.print_exc()
                 print("🔄 Falling back to LibreOffice method...")
-                return self.convert_docx_to_pdf_libreoffice(docx_path, pdf_path)
+                if self.convert_docx_to_pdf_libreoffice(docx_path, pdf_path):
+                    return True
+                else:
+                    print("🔄 Falling back to HTML conversion method...")
+                    return self.convert_docx_to_pdf_html_fallback(docx_path, pdf_path)
                 
         except Exception as e:
             print(f"❌ Error in direct DOCX to PDF conversion: {str(e)}")
@@ -1196,6 +1200,9 @@ class MailMergeProcessor:
             elif self.convert_docx_to_pdf_libreoffice(temp_word_file, output_path):
                 print("✅ SUCCESS: Used LibreOffice conversion - good quality!")
                 success = True
+            elif self.convert_docx_to_pdf_html_fallback(temp_word_file, output_path):
+                print("✅ SUCCESS: Used HTML fallback conversion - basic formatting!")
+                success = True
             else:
                 print("❌ All PDF conversion methods failed")
                 success = False
@@ -1408,6 +1415,9 @@ class MailMergeProcessor:
                     successful_conversions += 1
                 elif self.convert_docx_to_pdf_libreoffice(word_path, pdf_path):
                     print(f"   ✅ SUCCESS: Used LibreOffice for {word_file}")
+                    successful_conversions += 1
+                elif self.convert_docx_to_pdf_html_fallback(word_path, pdf_path):
+                    print(f"   ✅ SUCCESS: Used HTML fallback for {word_file}")
                     successful_conversions += 1
                 else:
                     print(f"   ❌ Failed to convert {word_file}")
