@@ -18,7 +18,6 @@ from docx.enum.text import WD_BREAK
 import openpyxl
 import re
 from typing import List, Dict, Any, Optional
-import mammoth
 
 from jinja2 import Template
 
@@ -534,6 +533,44 @@ class MailMergeProcessor:
                 pass
             return False
     
+    def convert_docx_to_pdf_windows_server(self, docx_path: str, pdf_path: str) -> bool:
+        """Convert DOCX to PDF using external Windows server with Microsoft Word"""
+        try:
+            print(f"Converting {docx_path} to PDF using Windows server...")
+            
+            # Read the DOCX file
+            with open(docx_path, 'rb') as f:
+                docx_content = f.read()
+            
+            # Prepare request to Windows server
+            files = {'docx_file': ('document.docx', docx_content, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')}
+            headers = {'Authorization': f'Bearer {WINDOWS_SERVER_TOKEN}'}
+            
+            # Send conversion request
+            response = requests.post(
+                f"{WINDOWS_PDF_SERVER}/convert-to-pdf",
+                files=files,
+                headers=headers,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                # Save the PDF content
+                with open(pdf_path, 'wb') as f:
+                    f.write(response.content)
+                print(f"✅ Successfully converted to PDF via Windows server: {pdf_path}")
+                return True
+            else:
+                print(f"❌ Windows server error: {response.status_code} - {response.text}")
+                return False
+                
+        except requests.RequestException as e:
+            print(f"❌ Network error connecting to Windows server: {str(e)}")
+            return False
+        except Exception as e:
+            print(f"❌ Error in Windows server conversion: {str(e)}")
+            return False
+
     def convert_docx_to_pdf_fallback(self, docx_path: str, pdf_path: str) -> bool:
         """Cross-platform PDF conversion using LibreOffice headless (Linux/Render environment)"""
         try:
@@ -659,6 +696,40 @@ class MailMergeProcessor:
             print(f"❌ Error converting docx to HTML: {str(e)}")
             return ""
 
+    def convert_to_pdf(self, docx_path: str, pdf_path: str) -> bool:
+        """Unified PDF conversion with Windows server priority"""
+        # Try Windows server first (production quality)
+        if WINDOWS_PDF_SERVER != 'http://your-windows-server:5001':
+            print("🔄 Trying Windows server for PDF conversion...")
+            if self.convert_docx_to_pdf_windows_server(docx_path, pdf_path):
+                return True
+            print("⚠️ Windows server failed, trying local methods...")
+        
+        # Try Word COM (Windows development)
+        if self.convert_docx_to_pdf_with_word(docx_path, pdf_path):
+            return True
+        
+        # Fallback to LibreOffice (Linux/Render)
+        print("🔄 Word COM failed, trying LibreOffice fallback...")
+        return self.convert_docx_to_pdf_fallback(docx_path, pdf_path)
+
+    def convert_to_pdf(self, docx_path: str, pdf_path: str) -> bool:
+        """Unified PDF conversion with Windows server priority"""
+        # Try Windows server first (production quality)
+        if WINDOWS_PDF_SERVER != 'http://your-windows-server:5001':
+            print("🔄 Trying Windows server for PDF conversion...")
+            if self.convert_docx_to_pdf_windows_server(docx_path, pdf_path):
+                return True
+            print("⚠️ Windows server failed, trying local methods...")
+        
+        # Try Word COM (Windows development)
+        if self.convert_docx_to_pdf_with_word(docx_path, pdf_path):
+            return True
+        
+        # Fallback to LibreOffice (Linux/Render)
+        print("🔄 Word COM failed, trying LibreOffice fallback...")
+        return self.convert_docx_to_pdf_fallback(docx_path, pdf_path)
+
 
 
     def generate_single_pdf(self, output_path: str) -> bool:
@@ -684,18 +755,12 @@ class MailMergeProcessor:
             
             print(f"✅ Created temporary Word document: {temp_docx.name}")
             
-            # Convert to PDF using Word COM automation (Print to PDF simulation)
-            if self.convert_docx_to_pdf_with_word(temp_docx.name, output_path):
-                success = True
-                print(f"✅ Successfully created single PDF document using Word: {output_path}")
+            # Convert to PDF using Pandoc
+            success = self.convert_docx_to_pdf_pandoc(temp_docx.name, output_path)
+            if success:
+                print(f"✅ Successfully created single PDF document: {output_path}")
             else:
-                # Fallback for Linux/Render environment
-                print("🔄 Trying cross-platform PDF conversion...")
-                success = self.convert_docx_to_pdf_fallback(temp_docx.name, output_path)
-                if success:
-                    print(f"✅ Successfully created single PDF document using fallback: {output_path}")
-                else:
-                    print("❌ PDF generation failed - no conversion method available")
+                print("❌ PDF generation failed - Pandoc conversion failed")
                 
             return success
             
@@ -737,12 +802,9 @@ class MailMergeProcessor:
                 pdf_path = os.path.join(output_dir, pdf_file)
                 
                 print(f"Converting {word_file} to PDF...")
-                if self.convert_docx_to_pdf_with_word(word_path, pdf_path):
+                if self.convert_docx_to_pdf_pandoc(word_path, pdf_path):
                     success_count += 1
                     print(f"✅ Created: {pdf_file}")
-                elif self.convert_docx_to_pdf_fallback(word_path, pdf_path):
-                    success_count += 1
-                    print(f"✅ Created (fallback): {pdf_file}")
                 else:
                     print(f"❌ Failed to convert: {word_file}")
             

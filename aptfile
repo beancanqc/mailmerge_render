@@ -1,2 +1,4 @@
-libreoffice
-libreoffice-writer
+pandoc
+wkhtmltopdf
+texlive-latex-base
+texlive-fonts-recommended
