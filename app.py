@@ -49,7 +49,6 @@ class MailMergeProcessor:
         self.template_path: Optional[str] = None
         self.data_path: Optional[str] = None
         self.data: List[Dict[str, Any]] = []
-        self.first_column_header: Optional[str] = None
         
     def cleanup(self):
         """Clean up temporary files"""
@@ -69,7 +68,6 @@ class MailMergeProcessor:
         self.template_path = None
         self.data_path = None
         self.data = []
-        self.first_column_header = None
         
     def load_template(self, template_path: str) -> bool:
         """Load and validate Word template file"""
@@ -121,9 +119,6 @@ class MailMergeProcessor:
             headers = []
             for cell in sheet[1]:
                 headers.append(str(cell.value) if cell.value is not None else "")
-            
-            # Store first column header for filename generation
-            self.first_column_header = headers[0] if headers else None
             
             self.data = []
             for row in sheet.iter_rows(min_row=2, values_only=True):
@@ -321,206 +316,69 @@ class MailMergeProcessor:
                 from docx.enum.section import WD_SECTION_START
                 new_section = final_doc.add_section(WD_SECTION_START.NEW_PAGE)
                 
-                # Copy all elements from processed document in their original order
-                # This preserves the document structure with tables in correct positions
-                for element in processed_doc.element.body:
-                    if element.tag.endswith('p'):  # Paragraph
-                        # Find corresponding paragraph in processed_doc
-                        for para in processed_doc.paragraphs:
-                            if para._element == element:
-                                new_para = final_doc.add_paragraph()
-                                
-                                # Copy paragraph-level formatting
-                                try:
-                                    new_para.style = para.style
-                                    new_para.alignment = para.alignment
-                                except:
-                                    pass
-                                
-                                # Copy all runs with their formatting
-                                for run in para.runs:
-                                    new_run = new_para.add_run(run.text)
-                                    
-                                    # Copy comprehensive formatting
-                                    try:
-                                        if run.bold is not None:
-                                            new_run.bold = run.bold
-                                        if run.italic is not None:
-                                            new_run.italic = run.italic
-                                        if run.underline is not None:
-                                            new_run.underline = run.underline
-                                        if run.font.size:
-                                            new_run.font.size = run.font.size
-                                        if run.font.name:
-                                            new_run.font.name = run.font.name
-                                        if run.font.color.rgb:
-                                            new_run.font.color.rgb = run.font.color.rgb
-                                    except:
-                                        pass
-                                break
+                # Copy all content from processed template to the new section
+                # Get the section element and body
+                section_element = new_section._sectPr
+                body_element = final_doc._body._body
+                
+                # Copy all paragraphs from processed document
+                for para in processed_doc.paragraphs:
+                    new_para = final_doc.add_paragraph()
                     
-                    elif element.tag.endswith('tbl'):  # Table
-                        # Find corresponding table in processed_doc
-                        for table in processed_doc.tables:
-                            if table._element == element:
-                                # Create new table with same dimensions
-                                new_table = final_doc.add_table(rows=len(table.rows), cols=len(table.columns))
-                                
-                                # Copy table-level formatting
-                                try:
-                                    if table.style:
-                                        new_table.style = table.style
-                                    
-                                    # Copy table alignment
-                                    if hasattr(table, 'alignment'):
-                                        new_table.alignment = table.alignment
-                                        
-                                except Exception as table_style_error:
-                                    print(f"   ⚠️  Table style copy failed: {table_style_error}")
-                                
-                                # Copy column widths to maintain table structure
-                                try:
-                                    for col_idx in range(len(table.columns)):
-                                        if col_idx < len(new_table.columns):
-                                            original_width = table.columns[col_idx].width
-                                            if original_width:
-                                                new_table.columns[col_idx].width = original_width
-                                except Exception as width_error:
-                                    print(f"   ⚠️  Column width copy failed: {width_error}")
-                                
-                                # Copy row heights and content
-                                for row_idx, row in enumerate(table.rows):
-                                    new_row = new_table.rows[row_idx]
-                                    
-                                    # Copy row height if available
-                                    try:
-                                        if hasattr(row, 'height') and row.height:
-                                            new_row.height = row.height
-                                    except:
-                                        pass
-                                    
-                                    # Copy cell content and formatting
-                                    for col_idx, cell in enumerate(row.cells):
-                                        new_cell = new_row.cells[col_idx]
-                                        
-                                        # Copy cell background color and borders
+                    # Copy paragraph-level formatting
+                    try:
+                        new_para.style = para.style
+                        new_para.alignment = para.alignment
+                    except:
+                        pass
+                    
+                    # Copy all runs with their formatting
+                    for run in para.runs:
+                        new_run = new_para.add_run(run.text)
+                        
+                        # Copy comprehensive formatting
+                        try:
+                            if run.bold is not None:
+                                new_run.bold = run.bold
+                            if run.italic is not None:
+                                new_run.italic = run.italic
+                            if run.underline is not None:
+                                new_run.underline = run.underline
+                            if run.font.size:
+                                new_run.font.size = run.font.size
+                            if run.font.name:
+                                new_run.font.name = run.font.name
+                            if run.font.color.rgb:
+                                new_run.font.color.rgb = run.font.color.rgb
+                        except:
+                            pass
+                
+                # Copy tables from processed document
+                for table in processed_doc.tables:
+                    new_table = final_doc.add_table(rows=len(table.rows), cols=len(table.columns))
+                    
+                    # Copy table content with formatting
+                    for row_idx, row in enumerate(table.rows):
+                        for col_idx, cell in enumerate(row.cells):
+                            new_cell = new_table.cell(row_idx, col_idx)
+                            new_cell.text = ""  # Clear default text
+                            
+                            for para in cell.paragraphs:
+                                if para.text.strip() or len(para.runs) > 0:
+                                    new_para = new_cell.add_paragraph()
+                                    for run in para.runs:
+                                        new_run = new_para.add_run(run.text)
                                         try:
-                                            # Direct approach to copy cell shading (background color)
-                                            from docx.oxml import OxmlElement, ns
-                                            from docx.oxml.ns import qn
-                                            
-                                            # Get original cell properties
-                                            original_tc_pr = cell._element.tcPr
-                                            if original_tc_pr is not None:
-                                                # Get or create cell properties for new cell
-                                                new_tc_pr = new_cell._element.tcPr
-                                                if new_tc_pr is None:
-                                                    new_tc_pr = OxmlElement('w:tcPr')
-                                                    new_cell._element.insert(0, new_tc_pr)
-                                                
-                                                # Copy shading (background color)
-                                                original_shd = original_tc_pr.find(qn('w:shd'))
-                                                if original_shd is not None:
-                                                    # Remove existing shading if any
-                                                    existing_shd = new_tc_pr.find(qn('w:shd'))
-                                                    if existing_shd is not None:
-                                                        new_tc_pr.remove(existing_shd)
-                                                    
-                                                    # Create new shading element
-                                                    new_shd = OxmlElement('w:shd')
-                                                    # Copy all shading attributes
-                                                    for attr_name, attr_value in original_shd.attrib.items():
-                                                        new_shd.set(attr_name, attr_value)
-                                                    new_tc_pr.append(new_shd)
-                                                    print(f"     🎨 Copied cell shading: {original_shd.attrib}")
-                                                
-                                                # Copy table cell borders
-                                                original_borders = original_tc_pr.find(qn('w:tcBorders'))
-                                                if original_borders is not None:
-                                                    # Remove existing borders if any
-                                                    existing_borders = new_tc_pr.find(qn('w:tcBorders'))
-                                                    if existing_borders is not None:
-                                                        new_tc_pr.remove(existing_borders)
-                                                    
-                                                    # Create new borders element
-                                                    new_borders = OxmlElement('w:tcBorders')
-                                                    # Copy all border elements
-                                                    for border_element in original_borders:
-                                                        new_border = OxmlElement(border_element.tag)
-                                                        for attr_name, attr_value in border_element.attrib.items():
-                                                            new_border.set(attr_name, attr_value)
-                                                        new_borders.append(new_border)
-                                                    new_tc_pr.append(new_borders)
-                                                
-                                                # Copy vertical alignment
-                                                original_valign = original_tc_pr.find(qn('w:vAlign'))
-                                                if original_valign is not None:
-                                                    existing_valign = new_tc_pr.find(qn('w:vAlign'))
-                                                    if existing_valign is not None:
-                                                        new_tc_pr.remove(existing_valign)
-                                                    
-                                                    new_valign = OxmlElement('w:vAlign')
-                                                    for attr_name, attr_value in original_valign.attrib.items():
-                                                        new_valign.set(attr_name, attr_value)
-                                                    new_tc_pr.append(new_valign)
-                                        
-                                        except Exception as cell_format_error:
-                                            print(f"   ⚠️  Cell formatting copy failed: {cell_format_error}")
-                                            # Fallback to basic copy
-                                            try:
-                                                if hasattr(cell._element, 'tcPr') and cell._element.tcPr is not None:
-                                                    import copy
-                                                    new_cell._element.tcPr = copy.deepcopy(cell._element.tcPr)
-                                            except:
-                                                pass
-                                        
-                                        # Clear default content and copy actual content
-                                        new_cell.text = ""
-                                        
-                                        # Copy paragraphs
-                                        for para_idx, para in enumerate(cell.paragraphs):
-                                            if para.text.strip() or len(para.runs) > 0:
-                                                if para_idx == 0:
-                                                    # Use the existing first paragraph
-                                                    new_para = new_cell.paragraphs[0]
-                                                else:
-                                                    # Add additional paragraphs
-                                                    new_para = new_cell.add_paragraph()
-                                                
-                                                # Copy paragraph formatting
-                                                try:
-                                                    new_para.alignment = para.alignment
-                                                    if hasattr(para, 'style') and para.style:
-                                                        new_para.style = para.style
-                                                except:
-                                                    pass
-                                                
-                                                # Copy runs with all formatting
-                                                for run in para.runs:
-                                                    new_run = new_para.add_run(run.text)
-                                                    try:
-                                                        # Copy all text formatting
-                                                        if run.bold is not None:
-                                                            new_run.bold = run.bold
-                                                        if run.italic is not None:
-                                                            new_run.italic = run.italic
-                                                        if run.underline is not None:
-                                                            new_run.underline = run.underline
-                                                        if run.font.size:
-                                                            new_run.font.size = run.font.size
-                                                        if run.font.name:
-                                                            new_run.font.name = run.font.name
-                                                        if run.font.color.rgb:
-                                                            new_run.font.color.rgb = run.font.color.rgb
-                                                    except Exception as run_format_error:
-                                                        pass  # Continue even if some formatting fails
-                                
-                                print(f"   ✅ Copied table with enhanced formatting preservation")
-                                break
+                                            if run.bold is not None:
+                                                new_run.bold = run.bold
+                                            if run.italic is not None:
+                                                new_run.italic = run.italic
+                                        except:
+                                            pass
             
             # Save the final document
             final_doc.save(output_path)
-            print(f"✅ Successfully created single Word document with proper table positioning")
+            print(f"✅ Successfully created single Word document using section breaks")
             return True
             
         except Exception as e:
@@ -613,370 +471,35 @@ class MailMergeProcessor:
             if not self.template_path or not self.data:
                 raise ValueError("Template and data must be loaded first")
             
-            print(f"📁 Creating directory: {output_dir}")
             os.makedirs(output_dir, exist_ok=True)
             
-            print(f"📄 Generating {len(self.data)} individual Word documents...")
-            
-            generated_files = []
             for index, row_data in enumerate(self.data):
-                print(f"   Processing record {index+1}/{len(self.data)}...")
-                
-                # Load fresh template for each document
+                # Load template
                 doc = Document(self.template_path)
                 
                 # Replace merge fields
                 processed_doc = self.replace_merge_fields(doc, row_data)
                 
-                # Generate filename (use first column value or index)
-                if self.first_column_header and self.first_column_header in row_data:
-                    first_value = row_data[self.first_column_header]
-                else:
-                    first_value = list(row_data.values())[0] if row_data else f"record_{index+1}"
-                # Clean filename - remove invalid characters
+                # Generate filename (use first field value or index)
+                first_value = list(row_data.values())[0] if row_data else f"record_{index+1}"
+                # Clean filename
                 safe_filename = re.sub(r'[<>:"/\\|?*]', '_', str(first_value))
-                safe_filename = safe_filename.strip()[:50]  # Limit length
-                if not safe_filename:
-                    safe_filename = f"record_{index+1}"
-                
                 output_path = os.path.join(output_dir, f"{safe_filename}.docx")
                 
-                # Handle duplicate filenames
-                counter = 1
-                original_path = output_path
-                while os.path.exists(output_path):
-                    base_name = os.path.splitext(original_path)[0]
-                    output_path = f"{base_name}_{counter}.docx"
-                    counter += 1
-                
-                # Save the document
                 processed_doc.save(output_path)
-                generated_files.append(output_path)
-                print(f"   ✅ Saved: {os.path.basename(output_path)}")
             
-            print(f"🎉 Successfully generated {len(generated_files)} Word documents")
             return True
             
         except Exception as e:
-            print(f"❌ Error creating multiple Word files: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            print(f"Error creating multiple Word files: {str(e)}")
             return False
     
-    def simple_word_to_pdf(self, word_path: str, pdf_path: str) -> bool:
-        """Simple Word to PDF conversion with better formatting preservation"""
-        try:
-            # Try LibreOffice first (best formatting preservation on Linux)
-            try:
-                import subprocess
-                print("   🔄 Attempting LibreOffice conversion...")
-                
-                # Check if LibreOffice is available
-                check_cmd = ['which', 'libreoffice']
-                check_result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=10)
-                
-                if check_result.returncode == 0:
-                    print(f"   ✅ LibreOffice found at: {check_result.stdout.strip()}")
-                else:
-                    print("   ❌ LibreOffice not found in PATH")
-                    raise FileNotFoundError("LibreOffice not found")
-                
-                # Run the conversion
-                cmd = ['libreoffice', '--headless', '--convert-to', 'pdf', '--outdir', os.path.dirname(pdf_path), word_path]
-                print(f"   🔄 Running: {' '.join(cmd)}")
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-                
-                print(f"   📊 LibreOffice return code: {result.returncode}")
-                if result.stdout:
-                    print(f"   📤 LibreOffice stdout: {result.stdout}")
-                if result.stderr:
-                    print(f"   📤 LibreOffice stderr: {result.stderr}")
-                
-                if result.returncode == 0:
-                    # LibreOffice creates PDF with same base name
-                    expected_pdf = os.path.join(
-                        os.path.dirname(pdf_path),
-                        os.path.splitext(os.path.basename(word_path))[0] + '.pdf'
-                    )
-                    
-                    print(f"   📁 Looking for PDF at: {expected_pdf}")
-                    
-                    if expected_pdf != pdf_path and os.path.exists(expected_pdf):
-                        import shutil
-                        shutil.move(expected_pdf, pdf_path)
-                        print(f"   ✅ Moved PDF to: {pdf_path}")
-                    
-                    if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
-                        print("   ✅ LibreOffice conversion - formatting preserved!")
-                        return True
-                    else:
-                        print(f"   ❌ PDF not found or empty at: {pdf_path}")
-                else:
-                    print(f"   ❌ LibreOffice failed with code: {result.returncode}")
-                    
-            except subprocess.TimeoutExpired:
-                print("   ❌ LibreOffice conversion timed out")
-            except FileNotFoundError:
-                print("   ❌ LibreOffice not installed")
-            except Exception as e:
-                print(f"   ❌ LibreOffice error: {str(e)}")
-            
-            # Try docx2pdf (best formatting preservation on Windows)
-            try:
-                print("   🔄 Attempting docx2pdf conversion...")
-                from docx2pdf import convert
-                convert(word_path, pdf_path)
-                if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
-                    print("   ✅ docx2pdf conversion - formatting preserved!")
-                    return True
-                else:
-                    print("   ❌ docx2pdf did not create PDF file")
-            except ImportError:
-                print("   ❌ docx2pdf library not available")
-            except Exception as e:
-                print(f"   ❌ docx2pdf error: {str(e)}")
-            
-            # Try enhanced mammoth conversion with better CSS
-            try:
-                print("   ⚠️  Using enhanced HTML conversion...")
-                return self.convert_word_to_pdf_enhanced(word_path, pdf_path)
-            except Exception as e:
-                print(f"   ❌ Enhanced HTML conversion error: {str(e)}")
-                
-            print("   ❌ All conversion methods failed")
-            return False
-            
-        except Exception as e:
-            print(f"   ❌ Error in PDF conversion: {str(e)}")
-            return False
-
-    def convert_word_to_pdf_enhanced(self, word_path: str, pdf_path: str) -> bool:
-        """Enhanced Word to PDF that preserves formatting like 'Print to PDF'"""
-        try:
-            from reportlab.pdfgen import canvas
-            from reportlab.lib.pagesizes import A4, letter
-            from reportlab.lib.colors import black, blue, red, green, HexColor
-            from reportlab.lib.units import inch
-            from docx import Document
-            from docx.shared import RGBColor
-            
-            print("   🎨 Creating PDF with preserved Word formatting...")
-            
-            # Read the Word document
-            doc = Document(word_path)
-            
-            # Create PDF canvas
-            c = canvas.Canvas(pdf_path, pagesize=A4)
-            width, height = A4
-            
-            # PDF positioning
-            margin = 72  # 1 inch margin
-            x_pos = margin
-            y_pos = height - margin
-            line_height = 14
-            
-            page_count = 1
-            print(f"   📄 Starting PDF page {page_count}")
-            
-            for para_idx, paragraph in enumerate(doc.paragraphs):
-                # Check for page break
-                if y_pos < margin + 50:  # Near bottom of page
-                    c.showPage()
-                    page_count += 1
-                    print(f"   📄 New PDF page {page_count}")
-                    y_pos = height - margin
-                    x_pos = margin
-                
-                # Handle empty paragraphs (spacing)
-                if not paragraph.text.strip():
-                    y_pos -= line_height * 0.5
-                    continue
-                
-                # Process paragraph with runs (preserving formatting)
-                if len(paragraph.runs) == 0:
-                    # Paragraph with no runs
-                    c.setFont("Helvetica", 11)
-                    c.setFillColor(black)
-                    # Split long text into lines
-                    text_lines = self.wrap_text(paragraph.text, width - 2*margin, 11)
-                    for line in text_lines:
-                        if y_pos < margin + 20:
-                            c.showPage()
-                            page_count += 1
-                            y_pos = height - margin
-                        c.drawString(x_pos, y_pos, line)
-                        y_pos -= line_height
-                else:
-                    # Paragraph with formatted runs
-                    current_x = x_pos
-                    line_y = y_pos
-                    
-                    for run in paragraph.runs:
-                        if not run.text:
-                            continue
-                        
-                        # Determine font and formatting
-                        font_name = "Helvetica"
-                        font_size = 11
-                        
-                        # Handle bold
-                        if run.bold:
-                            font_name = "Helvetica-Bold"
-                        
-                        # Handle italic
-                        if run.italic:
-                            if run.bold:
-                                font_name = "Helvetica-BoldOblique"
-                            else:
-                                font_name = "Helvetica-Oblique"
-                        
-                        # Handle font size
-                        if run.font.size:
-                            font_size = min(int(run.font.size.pt), 24)  # Cap at 24pt
-                        
-                        # Handle color
-                        text_color = black
-                        if run.font.color and run.font.color.rgb:
-                            rgb = run.font.color.rgb
-                            try:
-                                text_color = HexColor(f"#{rgb.red:02x}{rgb.green:02x}{rgb.blue:02x}")
-                            except:
-                                text_color = black
-                        
-                        # Set font properties
-                        c.setFont(font_name, font_size)
-                        c.setFillColor(text_color)
-                        
-                        # Handle text wrapping within page width
-                        remaining_width = width - current_x - margin
-                        text_lines = self.wrap_text(run.text, remaining_width, font_size)
-                        
-                        for line_idx, line in enumerate(text_lines):
-                            if line_idx > 0:  # New line
-                                current_x = x_pos
-                                line_y -= line_height
-                                if line_y < margin + 20:
-                                    c.showPage()
-                                    page_count += 1
-                                    line_y = height - margin
-                            
-                            # Draw the text
-                            c.drawString(current_x, line_y, line)
-                            
-                            # Update position for next run
-                            text_width = c.stringWidth(line, font_name, font_size)
-                            current_x += text_width
-                            
-                            # If line is complete, move to next line
-                            if line_idx == len(text_lines) - 1 and current_x > width - margin - 100:
-                                current_x = x_pos
-                                line_y -= line_height
-                    
-                    y_pos = line_y - line_height
-            
-            # Handle tables if any
-            for table in doc.tables:
-                if y_pos < margin + 100:  # Need space for table
-                    c.showPage()
-                    page_count += 1
-                    y_pos = height - margin
-                
-                # Draw table
-                table_width = width - 2*margin
-                col_width = table_width / len(table.columns)
-                row_height = 20
-                
-                print(f"   📊 Drawing table with {len(table.rows)} rows, {len(table.columns)} columns")
-                
-                for row_idx, row in enumerate(table.rows):
-                    if y_pos < margin + 30:
-                        c.showPage()
-                        page_count += 1
-                        y_pos = height - margin
-                    
-                    # Draw row cells
-                    for col_idx, cell in enumerate(row.cells):
-                        cell_x = margin + (col_idx * col_width)
-                        
-                        # Draw cell border
-                        c.setStrokeColor(black)
-                        c.rect(cell_x, y_pos - row_height, col_width, row_height)
-                        
-                        # Draw cell text
-                        c.setFont("Helvetica", 10)
-                        c.setFillColor(black)
-                        
-                        # Handle cell background for headers
-                        if row_idx == 0:  # Header row
-                            c.setFillColor(HexColor("#F2F2F2"))
-                            c.rect(cell_x, y_pos - row_height, col_width, row_height, fill=1)
-                            c.setFillColor(black)
-                        
-                        # Cell text (truncated if too long)
-                        cell_text = cell.text[:int(col_width/8)] if len(cell.text) > col_width/8 else cell.text
-                        c.drawString(cell_x + 5, y_pos - 15, cell_text)
-                    
-                    y_pos -= row_height
-                
-                y_pos -= 10  # Space after table
-            
-            # Save PDF
-            c.save()
-            
-            # Verify PDF was created
-            if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
-                pdf_size = os.path.getsize(pdf_path)
-                print(f"   ✅ Enhanced PDF created with formatting preservation ({pdf_size:,} bytes, {page_count} pages)")
-                return True
-            else:
-                print("   ❌ PDF creation failed")
-                return False
-                
-        except Exception as e:
-            print(f"   ❌ Enhanced PDF conversion failed: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            return False
-    
-    def wrap_text(self, text, max_width, font_size):
-        """Helper function to wrap text to fit within specified width"""
-        try:
-            # Simple text wrapping - approximately 8-10 characters per inch at 11pt
-            chars_per_line = int(max_width / (font_size * 0.6))
-            if chars_per_line < 10:
-                chars_per_line = 10
-            
-            words = text.split()
-            lines = []
-            current_line = ""
-            
-            for word in words:
-                test_line = current_line + (" " if current_line else "") + word
-                if len(test_line) <= chars_per_line:
-                    current_line = test_line
-                else:
-                    if current_line:
-                        lines.append(current_line)
-                    current_line = word
-            
-            if current_line:
-                lines.append(current_line)
-            
-            return lines if lines else [text[:chars_per_line]]
-            
-        except:
-            return [text]
-
     def convert_docx_to_pdf_with_word(self, docx_path: str, pdf_path: str) -> bool:
         """Convert DOCX to PDF using Microsoft Word COM automation (Windows only)"""
         try:
             import win32com.client
             
             print(f"Converting {docx_path} to PDF using Microsoft Word...")
-            
-            # Convert paths to absolute paths
-            docx_path = os.path.abspath(docx_path)
-            pdf_path = os.path.abspath(pdf_path)
             
             # Start Word application
             word = win32com.client.Dispatch("Word.Application")
@@ -985,7 +508,8 @@ class MailMergeProcessor:
             # Open the document
             doc = word.Documents.Open(docx_path)
             
-            # Save as PDF (wdFormatPDF = 17)
+            # Save as PDF
+            # wdFormatPDF = 17
             doc.SaveAs2(pdf_path, FileFormat=17)
             
             # Close document and quit Word
@@ -996,7 +520,7 @@ class MailMergeProcessor:
             return True
             
         except ImportError:
-            print("ℹ️  Microsoft Word not available (non-Windows environment). Using fallback PDF conversion...")
+            print("ℹ️  Microsoft Word not available (Linux environment). Using fallback PDF conversion...")
             return False
         except Exception as e:
             print(f"❌ Error converting to PDF with Word: {str(e)}")
@@ -1010,185 +534,53 @@ class MailMergeProcessor:
                 pass
             return False
 
-    def convert_docx_to_pdf_direct(self, docx_path: str, pdf_path: str) -> bool:
-        """Direct DOCX to PDF conversion using docx2pdf (preserves formatting)"""
+    def convert_docx_to_pdf_fallback(self, docx_path: str, pdf_path: str) -> bool:
+        """Fallback PDF conversion using HTML method"""
         try:
-            print(f"🔄 Converting DOCX to PDF directly: {docx_path} → {pdf_path}")
-            
-            # Verify input file exists and has content
-            if not os.path.exists(docx_path):
-                print(f"❌ Input DOCX file not found: {docx_path}")
-                return False
-            
-            file_size = os.path.getsize(docx_path)
-            print(f"📊 Input DOCX size: {file_size} bytes")
-            
-            if file_size == 0:
-                print("❌ Input DOCX file is empty")
-                return False
-            
-            # Try docx2pdf first (best formatting preservation) 
-            try:
-                from docx2pdf import convert
-                print("✅ docx2pdf library is available")
-                
-                # Ensure output directory exists
-                output_dir = os.path.dirname(pdf_path)
-                if output_dir:
-                    os.makedirs(output_dir, exist_ok=True)
-                    print(f"📁 Output directory ready: {output_dir}")
-                
-                # Convert directly - this preserves ALL Word formatting
-                print("🔄 Running docx2pdf conversion...")
-                print(f"   Input: {docx_path}")
-                print(f"   Output: {pdf_path}")
-                
-                # Call docx2pdf convert function
-                convert(docx_path, pdf_path)
-                print("✅ docx2pdf conversion completed without errors")
-                
-                # Verify PDF was created and has content
-                if os.path.exists(pdf_path):
-                    pdf_size = os.path.getsize(pdf_path)
-                    print(f"📊 Output PDF size: {pdf_size} bytes")
-                    
-                    if pdf_size > 0:
-                        print(f"✅ PDF conversion successful with docx2pdf!")
-                        print(f"   Final file: {pdf_path} ({pdf_size:,} bytes)")
-                        return True
-                    else:
-                        print("❌ PDF file was created but is empty")
-                        return False
-                else:
-                    print(f"❌ PDF file was not created at expected location: {pdf_path}")
-                    return False
-                    
-            except ImportError:
-                print("❌ docx2pdf library not available, trying LibreOffice method...")
-                return self.convert_docx_to_pdf_libreoffice(docx_path, pdf_path)
-            except Exception as e:
-                print(f"❌ docx2pdf conversion failed with error: {e}")
-                import traceback
-                traceback.print_exc()
-                print("🔄 Falling back to LibreOffice method...")
-                if self.convert_docx_to_pdf_libreoffice(docx_path, pdf_path):
-                    return True
-                else:
-                    print("🔄 Falling back to HTML conversion method...")
-                    return self.convert_docx_to_pdf_html_fallback(docx_path, pdf_path)
-                
-        except Exception as e:
-            print(f"❌ Error in direct DOCX to PDF conversion: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            return False
-    
-    def convert_docx_to_pdf_libreoffice(self, docx_path: str, pdf_path: str) -> bool:
-        """Convert DOCX to PDF using LibreOffice (available on Linux)"""
-        try:
-            print("Converting DOCX to PDF using LibreOffice...")
-            import subprocess
-            
-            # Try LibreOffice headless conversion
-            cmd = [
-                'libreoffice', '--headless', '--convert-to', 'pdf',
-                '--outdir', os.path.dirname(pdf_path), docx_path
-            ]
-            
-            print(f"Running: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            
-            if result.returncode == 0:
-                # LibreOffice creates PDF with same base name
-                expected_pdf = os.path.join(
-                    os.path.dirname(pdf_path),
-                    os.path.splitext(os.path.basename(docx_path))[0] + '.pdf'
-                )
-                
-                # Move to desired location if different
-                if expected_pdf != pdf_path and os.path.exists(expected_pdf):
-                    shutil.move(expected_pdf, pdf_path)
-                
-                if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
-                    print(f"✅ LibreOffice PDF conversion successful: {pdf_path} ({os.path.getsize(pdf_path)} bytes)")
-                    return True
-                else:
-                    print("❌ LibreOffice conversion failed - no output file")
-                    return False
-            else:
-                print(f"❌ LibreOffice conversion failed: {result.stderr}")
-                return False
-                
-        except subprocess.TimeoutExpired:
-            print("❌ LibreOffice conversion timed out")
-            return False
-        except FileNotFoundError:
-            print("ℹ️  LibreOffice not found.")
-            print("💡 For better quality: install LibreOffice with 'apt-get install libreoffice-headless'")
+            print("Using fallback HTML-based PDF conversion...")
+            html_content = self.convert_docx_to_html(docx_path)
+            if html_content:
+                return self.convert_html_to_pdf(html_content, pdf_path)
             return False
         except Exception as e:
-            print(f"❌ LibreOffice conversion error: {str(e)}")
+            print(f"❌ Fallback PDF conversion failed: {str(e)}")
             return False
     
     def convert_html_to_pdf(self, html_content: str, output_path: str) -> bool:
-        """Convert HTML content to PDF using weasyprint with enhanced error handling"""
+        """Convert HTML content to PDF using weasyprint"""
         try:
-            print("Converting HTML to PDF using WeasyPrint...")
-            
-            # Check if WeasyPrint is available and import it properly to avoid naming conflicts
-            try:
-                import weasyprint as wp
-                print("✅ WeasyPrint is available")
-            except ImportError as e:
-                print(f"❌ WeasyPrint not available: {e}")
-                print("💡 Try installing: pip install weasyprint")
-                return self.convert_html_to_pdf_alternative(html_content, output_path)
-            
-            # Add enhanced CSS for better PDF formatting
+            # Add basic CSS for better PDF formatting
             html_with_css = f"""
-            <!DOCTYPE html>
             <html>
             <head>
                 <meta charset="utf-8">
                 <style>
-                    @page {{
-                        size: A4;
-                        margin: 1in;
-                    }}
                     body {{
-                        font-family: 'DejaVu Sans', Arial, sans-serif;
-                        font-size: 11pt;
-                        line-height: 1.4;
-                        color: #000;
+                        font-family: Arial, sans-serif;
+                        font-size: 12pt;
+                        line-height: 1.5;
+                        margin: 1in;
                     }}
                     h1, h2, h3, h4, h5, h6 {{
                         color: #333;
                         margin-top: 1.2em;
                         margin-bottom: 0.6em;
-                        page-break-after: avoid;
                     }}
                     p {{
-                        margin-bottom: 0.8em;
-                        text-align: justify;
+                        margin-bottom: 1em;
                     }}
                     table {{
                         border-collapse: collapse;
                         width: 100%;
                         margin-bottom: 1em;
-                        page-break-inside: avoid;
                     }}
                     th, td {{
                         border: 1px solid #ddd;
                         padding: 8px;
                         text-align: left;
-                        vertical-align: top;
                     }}
                     th {{
-                        background-color: #f5f5f5;
-                        font-weight: bold;
-                    }}
-                    .page-break {{
-                        page-break-before: always;
+                        background-color: #f2f2f2;
                     }}
                 </style>
             </head>
@@ -1198,532 +590,115 @@ class MailMergeProcessor:
             </html>
             """
             
-            # Convert to PDF with error handling - use the wp alias to avoid conflicts
             try:
-                print("Generating PDF from HTML...")
-                # Create HTML document object
-                html_doc = wp.HTML(string=html_with_css)
-                # Write PDF to file
-                html_doc.write_pdf(output_path)
-                
-                # Verify PDF was created
-                if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                    print(f"✅ PDF created successfully: {output_path} ({os.path.getsize(output_path)} bytes)")
-                    return True
-                else:
-                    print("❌ PDF file was not created or is empty")
-                    return False
-                    
-            except Exception as pdf_error:
-                print(f"❌ WeasyPrint PDF generation error: {pdf_error}")
-                import traceback
-                traceback.print_exc()
-                print("🔄 Trying alternative PDF generation method...")
-                return self.convert_html_to_pdf_alternative(html_content, output_path)
-                
-        except Exception as e:
-            print(f"❌ HTML to PDF conversion failed: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            return False
-                
-    def convert_docx_to_pdf_html_fallback(self, docx_path: str, pdf_path: str) -> bool:
-        """HTML fallback PDF conversion (formatting may be lost) - use as last resort"""
-        try:
-            print("🚨 ========================================")
-            print("🚨 WARNING: Using HTML fallback method!")
-            print("🚨 Word formatting will be LOST!")
-            print("🚨 Install LibreOffice for better quality")
-            print("🚨 ========================================")
-            
-            # First convert DOCX to HTML
-            html_content = self.convert_docx_to_html(docx_path)
-            if not html_content:
-                print("❌ Failed to convert DOCX to HTML")
-                return False
-            
-            print(f"✅ Successfully converted DOCX to HTML ({len(html_content)} characters)")
-            
-            # Then convert HTML to PDF (try multiple methods)
-            if self.convert_html_to_pdf(html_content, pdf_path):
-                print(f"⚠️  HTML-to-PDF conversion completed: {pdf_path}")
-                print("⚠️  WARNING: Output PDF has basic formatting only!")
+                import weasyprint
+                weasyprint.HTML(string=html_with_css).write_pdf(output_path)
                 return True
-            elif self.convert_html_to_pdf_alternative(html_content, pdf_path):
-                print(f"⚠️  Alternative HTML-to-PDF conversion completed: {pdf_path}")
-                print("⚠️  WARNING: Output PDF has very basic formatting!")
-                return True
-            else:
-                print("❌ All HTML-to-PDF conversion methods failed")
-                # As absolute last resort, create a simple text PDF
-                return self.create_basic_text_pdf(html_content, pdf_path)
-                
-        except Exception as e:
-            print(f"❌ HTML fallback PDF conversion failed: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            return False
-    
-    def convert_html_to_pdf_alternative(self, html_content: str, output_path: str) -> bool:
-        """Alternative PDF generation using reportlab as fallback"""
-        try:
-            print("🔄 Using alternative PDF generation with reportlab...")
-            
-            # Try importing reportlab
-            try:
-                from reportlab.pdfgen import canvas
-                from reportlab.lib.pagesizes import letter, A4
-                from reportlab.lib.styles import getSampleStyleSheet
-                from reportlab.platypus import SimpleDocTemplate, Paragraph
-                from io import StringIO
-                import html
-                print("✅ Reportlab is available")
             except ImportError:
-                print("❌ Reportlab not available. Installing basic text-only PDF fallback...")
-                return self.create_basic_text_pdf(html_content, output_path)
-            
-            # Create PDF with reportlab
-            doc = SimpleDocTemplate(output_path, pagesize=A4)
-            styles = getSampleStyleSheet()
-            story = []
-            
-            # Convert HTML to simple text and create paragraphs
-            # Remove HTML tags for basic text conversion
-            import re
-            text_content = re.sub(r'<[^>]+>', ' ', html_content)
-            text_content = html.unescape(text_content)
-            
-            # Split into paragraphs and add to story
-            paragraphs = text_content.split('\n\n')
-            for para_text in paragraphs:
-                if para_text.strip():
-                    para = Paragraph(para_text.strip(), styles['Normal'])
-                    story.append(para)
-            
-            # Build PDF
-            doc.build(story)
-            
-            # Verify PDF was created
-            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                print(f"✅ Alternative PDF created successfully: {output_path} ({os.path.getsize(output_path)} bytes)")
-                return True
-            else:
-                print("❌ Alternative PDF creation failed")
+                print("WeasyPrint not available for HTML to PDF conversion")
                 return False
-                
         except Exception as e:
-            print(f"❌ Alternative PDF generation failed: {str(e)}")
-            return self.create_basic_text_pdf(html_content, output_path)
-    
-    def create_basic_text_pdf(self, html_content: str, output_path: str) -> bool:
-        """Last resort: create a basic text-only PDF"""
-        try:
-            print("🔄 Creating basic text-only PDF as last resort...")
-            
-            from reportlab.pdfgen import canvas
-            from reportlab.lib.pagesizes import letter
-            import re
-            import html
-            
-            # Convert HTML to plain text
-            text_content = re.sub(r'<[^>]+>', ' ', html_content)
-            text_content = html.unescape(text_content)
-            text_content = ' '.join(text_content.split())  # Clean up whitespace
-            
-            # Create PDF
-            c = canvas.Canvas(output_path, pagesize=letter)
-            width, height = letter
-            
-            # Set up text
-            c.setFont("Helvetica", 12)
-            y_position = height - 72  # Start 1 inch from top
-            line_height = 14
-            
-            # Split text into lines that fit the page width
-            words = text_content.split()
-            lines = []
-            current_line = ""
-            
-            for word in words:
-                test_line = current_line + " " + word if current_line else word
-                if c.stringWidth(test_line, "Helvetica", 12) < (width - 144):  # Leave 1 inch margins
-                    current_line = test_line
-                else:
-                    if current_line:
-                        lines.append(current_line)
-                    current_line = word
-            
-            if current_line:
-                lines.append(current_line)
-            
-            # Write lines to PDF
-            for line in lines:
-                if y_position < 72:  # Start new page if needed
-                    c.showPage()
-                    c.setFont("Helvetica", 12)
-                    y_position = height - 72
-                
-                c.drawString(72, y_position, line)
-                y_position -= line_height
-            
-            c.save()
-            
-            # Verify PDF was created
-            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                print(f"✅ Basic PDF created successfully: {output_path} ({os.path.getsize(output_path)} bytes)")
-                return True
-            else:
-                print("❌ Basic PDF creation failed")
-                return False
-                
-        except Exception as e:
-            print(f"❌ Basic PDF creation failed: {str(e)}")
+            print(f"Error converting HTML to PDF: {str(e)}")
             return False
     
     def convert_docx_to_html(self, docx_path: str) -> str:
-        """Convert a single docx file to HTML using mammoth with enhanced styling"""
+        """Convert a single docx file to HTML using mammoth"""
         try:
             with open(docx_path, "rb") as docx_file:
-                # Use mammoth with style map to preserve formatting
-                style_map = """
-                p[style-name='Normal'] => p:fresh
-                p[style-name='Heading 1'] => h1:fresh
-                p[style-name='Heading 2'] => h2:fresh
-                p[style-name='Heading 3'] => h3:fresh
-                r[style-name='Strong'] => strong
-                r[style-name='Emphasis'] => em
-                """
-                
-                result = mammoth.convert_to_html(
-                    docx_file,
-                    style_map=style_map,
-                    include_default_style_map=True
-                )
-                
-                html_content = result.value
-                
-                # Add enhanced CSS styling to preserve Word-like appearance
-                enhanced_html = f"""
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <meta charset="utf-8">
-                    <style>
-                        body {{
-                            font-family: 'Calibri', 'Arial', sans-serif;
-                            font-size: 11pt;
-                            line-height: 1.4;
-                            color: #000000;
-                            margin: 72pt;
-                            background: white;
-                        }}
-                        h1, h2, h3, h4, h5, h6 {{
-                            color: #1f497d;
-                            margin-top: 12pt;
-                            margin-bottom: 6pt;
-                            font-weight: bold;
-                        }}
-                        h1 {{ font-size: 16pt; }}
-                        h2 {{ font-size: 14pt; }}
-                        h3 {{ font-size: 12pt; }}
-                        p {{
-                            margin: 0 0 6pt 0;
-                            text-align: left;
-                        }}
-                        strong, b {{
-                            font-weight: bold;
-                            color: inherit;
-                        }}
-                        em, i {{
-                            font-style: italic;
-                            color: inherit;
-                        }}
-                        table {{
-                            border-collapse: collapse;
-                            width: 100%;
-                            margin: 6pt 0;
-                            font-size: inherit;
-                        }}
-                        td, th {{
-                            border: 1px solid #000;
-                            padding: 4pt 8pt;
-                            text-align: left;
-                            vertical-align: top;
-                        }}
-                        th {{
-                            background-color: #d9d9d9;
-                            font-weight: bold;
-                        }}
-                        .page-break {{
-                            page-break-before: always;
-                        }}
-                        /* Preserve any inline styles from Word */
-                        span[style] {{
-                            /* Inline styles will be preserved */
-                        }}
-                    </style>
-                </head>
-                <body>
-                    {html_content}
-                </body>
-                </html>
-                """
-                
-                return enhanced_html
-                
+                result = mammoth.convert_to_html(docx_file)
+                return result.value
         except Exception as e:
             print(f"Error converting docx to HTML: {str(e)}")
             return ""
 
     def generate_single_pdf(self, output_path: str) -> bool:
-        """Generate a single PDF by creating a Word file then converting to PDF"""
+        """Generate a single PDF document - Enhanced with Word-based conversion"""
         try:
-            print(f"📄 Creating single PDF document with {len(self.data)} records...")
+            if not self.template_path or not self.data:
+                raise ValueError("Template and data must be loaded first")
             
-            # Step 1: Create Word document using proven method
-            print("🔄 Step 1: Creating Word document...")
-            temp_word_file = tempfile.NamedTemporaryFile(suffix='.docx', delete=False).name
+            print(f"Creating single PDF document with {len(self.data)} records...")
             
-            if not self.generate_single_word(temp_word_file):
-                print("❌ Failed to create Word document")
+            # First, create a Word document with proper pagination
+            temp_docx = tempfile.NamedTemporaryFile(suffix='.docx', delete=False)
+            temp_docx.close()
+            
+            # Use our improved Word generation method
+            if not self.generate_single_word(temp_docx.name):
+                print("❌ Failed to create Word document for PDF conversion")
+                return False
+            
+            print(f"✅ Created temporary Word document: {temp_docx.name}")
+            
+            # Try Word-based PDF conversion first (best quality)
+            if self.convert_docx_to_pdf_with_word(temp_docx.name, output_path):
+                # Clean up temp file
                 try:
-                    os.unlink(temp_word_file)
+                    os.unlink(temp_docx.name)
                 except:
                     pass
-                return False
-            
-            word_size = os.path.getsize(temp_word_file)
-            print(f"✅ Step 1 Complete: Word document created ({word_size:,} bytes)")
-            
-            # Step 2: Convert Word to PDF
-            print("🔄 Step 2: Converting to PDF...")
-            success = self.simple_word_to_pdf(temp_word_file, output_path)
-            
-            # Clean up temp file
-            try:
-                os.unlink(temp_word_file)
-            except:
-                pass
-            
-            if success:
-                pdf_size = os.path.getsize(output_path)
-                print(f"✅ SUCCESS: PDF created ({pdf_size:,} bytes)")
-            else:
-                print("❌ Failed to convert to PDF")
-            
-            return success
-            
-        except Exception as e:
-            print(f"❌ Error in single PDF generation: {str(e)}")
-            return False
-    def convert_docx_to_pdf_preserve_formatting(self, docx_path: str, pdf_path: str) -> bool:
-        """Convert Word document to PDF while preserving formatting using python-docx + reportlab"""
-        try:
-            print("🔄 Converting Word to PDF with preserved formatting...")
-            
-            from reportlab.pdfgen import canvas
-            from reportlab.lib.pagesizes import letter, A4
-            from reportlab.lib.colors import black, blue, red
-            from reportlab.lib.units import inch
-            from docx import Document
-            from docx.shared import RGBColor
-            
-            # Read the Word document
-            doc = Document(docx_path)
-            
-            # Create PDF
-            c = canvas.Canvas(pdf_path, pagesize=A4)
-            width, height = A4
-            
-            # Starting position
-            x_margin = 72  # 1 inch margin
-            y_position = height - 72  # Start 1 inch from top
-            line_height = 14
-            
-            print(f"   Processing {len(doc.paragraphs)} paragraphs...")
-            
-            for para in doc.paragraphs:
-                # Check for page break
-                if y_position < 72:  # Less than 1 inch from bottom
-                    c.showPage()
-                    y_position = height - 72
-                
-                # Handle empty paragraphs (line breaks)
-                if not para.text.strip():
-                    y_position -= line_height
-                    continue
-                
-                # Process paragraph with formatting
-                para_text = ""
-                x_position = x_margin
-                
-                # Check if paragraph has runs with different formatting
-                if len(para.runs) > 0:
-                    for run in para.runs:
-                        if run.text:
-                            # Set font properties based on run formatting
-                            font_name = "Helvetica"
-                            font_size = 11
-                            
-                            # Handle bold
-                            if run.bold:
-                                font_name = "Helvetica-Bold"
-                            
-                            # Handle italic
-                            if run.italic:
-                                if run.bold:
-                                    font_name = "Helvetica-BoldOblique"
-                                else:
-                                    font_name = "Helvetica-Oblique"
-                            
-                            # Set font color
-                            text_color = black
-                            if run.font.color and run.font.color.rgb:
-                                rgb = run.font.color.rgb
-                                text_color = (rgb.red/255.0, rgb.green/255.0, rgb.blue/255.0)
-                            
-                            # Apply formatting and draw text
-                            c.setFont(font_name, font_size)
-                            c.setFillColor(text_color)
-                            c.drawString(x_position, y_position, run.text)
-                            
-                            # Update x position for next run
-                            text_width = c.stringWidth(run.text, font_name, font_size)
-                            x_position += text_width
-                
-                else:
-                    # Simple paragraph without runs
-                    c.setFont("Helvetica", 11)
-                    c.setFillColor(black)
-                    c.drawString(x_margin, y_position, para.text)
-                
-                y_position -= line_height
-            
-            # Process tables
-            for table in doc.tables:
-                if y_position < 200:  # Need space for table
-                    c.showPage()
-                    y_position = height - 72
-                
-                print(f"   Processing table with {len(table.rows)} rows...")
-                
-                # Calculate column widths
-                available_width = width - (2 * x_margin)
-                col_width = available_width / len(table.columns) if len(table.columns) > 0 else 100
-                
-                # Draw table
-                table_y = y_position
-                for row_idx, row in enumerate(table.rows):
-                    row_x = x_margin
-                    
-                    for col_idx, cell in enumerate(row.cells):
-                        # Draw cell border
-                        c.rect(row_x, table_y - 20, col_width, 20, stroke=1, fill=0)
-                        
-                        # Draw cell text
-                        if cell.text:
-                            c.setFont("Helvetica", 9)
-                            c.setFillColor(black)
-                            # Truncate text if too long
-                            text = cell.text[:int(col_width/6)] + "..." if len(cell.text) > col_width/6 else cell.text
-                            c.drawString(row_x + 2, table_y - 15, text)
-                        
-                        row_x += col_width
-                    
-                    table_y -= 20
-                    
-                    # Check if we need a new page
-                    if table_y < 72:
-                        c.showPage()
-                        table_y = height - 72
-                
-                y_position = table_y - 20
-            
-            # Save the PDF
-            c.save()
-            
-            # Verify PDF was created
-            if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
-                print(f"✅ PDF created with preserved formatting: {pdf_path} ({os.path.getsize(pdf_path):,} bytes)")
                 return True
-            else:
-                print("❌ Failed to create PDF")
-                return False
-                
-        except Exception as e:
-            print(f"❌ Error in formatted PDF conversion: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            return False
+            
+            # Fall back to HTML-based conversion if Word is not available
+            print("🔄 Word not available, trying fallback HTML-based conversion...")
+            success = self.convert_docx_to_pdf_fallback(temp_docx.name, output_path)
             
             # Clean up temp file
             try:
-                os.unlink(temp_word_file)
+                os.unlink(temp_docx.name)
             except:
                 pass
-            
+                
             return success
             
         except Exception as e:
-            print(f"❌ Error in single PDF generation: {str(e)}")
+            print(f"❌ Error creating single PDF document: {str(e)}")
             return False
     
     def generate_multiple_pdf(self, output_dir: str) -> bool:
-        """Generate multiple PDF files by creating Word files then converting each to PDF"""
+        """Generate multiple PDF documents (one per record) - Enhanced with Word conversion"""
         try:
-            print(f"📁 Creating multiple PDF files for {len(self.data)} records...")
+            if not self.template_path or not self.data:
+                raise ValueError("Template and data must be loaded first")
             
-            # Step 1: Create Word files using proven method
-            print("🔄 Step 1: Creating Word files...")
-            temp_word_dir = tempfile.mkdtemp(prefix='mailmerge_word_')
-            
-            if not self.generate_multiple_word(temp_word_dir):
-                print("❌ Failed to create Word files")
-                try:
-                    import shutil
-                    shutil.rmtree(temp_word_dir, ignore_errors=True)
-                except:
-                    pass
-                return False
-            
-            print("✅ Step 1 Complete: Word files created")
-            
-            # Step 2: Convert each Word file to PDF
-            print("🔄 Step 2: Converting Word files to PDF...")
             os.makedirs(output_dir, exist_ok=True)
             
-            word_files = [f for f in os.listdir(temp_word_dir) if f.endswith('.docx')]
-            successful_conversions = 0
-            
-            for word_file in word_files:
-                word_path = os.path.join(temp_word_dir, word_file)
-                pdf_file = word_file.replace('.docx', '.pdf')
-                pdf_path = os.path.join(output_dir, pdf_file)
+            for index, row_data in enumerate(self.data):
+                print(f"Creating PDF {index+1} of {len(self.data)}...")
                 
-                print(f"   Converting: {word_file} → {pdf_file}")
+                # Load template and process merge fields
+                doc = Document(self.template_path)
+                processed_doc = self.replace_merge_fields(doc, row_data)
                 
-                if self.simple_word_to_pdf(word_path, pdf_path):
-                    successful_conversions += 1
-                    print(f"   ✅ Success")
-                else:
-                    print(f"   ❌ Failed")
-            
-            # Clean up temp Word files
-            try:
-                import shutil
-                shutil.rmtree(temp_word_dir, ignore_errors=True)
-            except:
-                pass
-            
-            if successful_conversions > 0:
-                print(f"✅ SUCCESS: {successful_conversions}/{len(word_files)} PDFs created")
-                return True
-            else:
-                print("❌ No PDFs were created")
-                return False
+                # Save to temporary docx file
+                temp_docx = tempfile.NamedTemporaryFile(suffix='.docx', delete=False)
+                processed_doc.save(temp_docx.name)
+                temp_docx.close()
                 
+                # Generate PDF filename (use first field value or index)
+                first_value = list(row_data.values())[0] if row_data else f"record_{index+1}"
+                # Clean filename
+                safe_filename = re.sub(r'[<>:"/\\|?*]', '_', str(first_value))
+                pdf_output_path = os.path.join(output_dir, f"{safe_filename}.pdf")
+                
+                # Try Word-based conversion first, fall back to HTML if needed
+                success = (self.convert_docx_to_pdf_with_word(temp_docx.name, pdf_output_path) or 
+                          self.convert_docx_to_pdf_fallback(temp_docx.name, pdf_output_path))
+                
+                # Clean up temp file
+                try:
+                    os.unlink(temp_docx.name)
+                except:
+                    pass
+                
+                if not success:
+                    print(f"❌ Failed to create PDF for record {index+1}")
+            
+            print(f"✅ Created {len(self.data)} PDF files using Word conversion")
+            return True
+            
         except Exception as e:
-            print(f"❌ Error in multiple PDF generation: {str(e)}")
+            print(f"❌ Error creating multiple PDF files: {str(e)}")
             return False
     
     def process_merge(self, output_format: str, output_path: str) -> bool:
