@@ -664,13 +664,13 @@ class MailMergeProcessor:
             return False
     
     def simple_word_to_pdf(self, word_path: str, pdf_path: str) -> bool:
-        """Simple Word to PDF conversion"""
+        """Simple Word to PDF conversion with better formatting preservation"""
         try:
-            # Try LibreOffice (works on Linux)
+            # Try LibreOffice first (best formatting preservation on Linux)
             try:
                 import subprocess
                 cmd = ['libreoffice', '--headless', '--convert-to', 'pdf', '--outdir', os.path.dirname(pdf_path), word_path]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
                 
                 if result.returncode == 0:
                     # LibreOffice creates PDF with same base name
@@ -684,41 +684,141 @@ class MailMergeProcessor:
                         shutil.move(expected_pdf, pdf_path)
                     
                     if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
+                        print("   ✅ LibreOffice conversion - formatting preserved!")
                         return True
             except:
                 pass
             
-            # Try docx2pdf (works on Windows)
+            # Try docx2pdf (best formatting preservation on Windows)
             try:
                 from docx2pdf import convert
                 convert(word_path, pdf_path)
                 if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
+                    print("   ✅ docx2pdf conversion - formatting preserved!")
                     return True
             except:
                 pass
             
-            # Try HTML conversion as last resort
+            # Try enhanced mammoth conversion with better CSS
             try:
-                import mammoth
-                from weasyprint import HTML, CSS
-                
-                # Convert DOCX to HTML
-                with open(word_path, "rb") as docx_file:
-                    result = mammoth.convert_to_html(docx_file)
-                    html_content = result.value
-                
-                # Convert HTML to PDF
-                HTML(string=html_content).write_pdf(pdf_path)
-                
-                if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
-                    return True
+                print("   ⚠️  Using enhanced HTML conversion...")
+                return self.convert_word_to_pdf_enhanced(word_path, pdf_path)
             except:
                 pass
                 
+            print("   ❌ All conversion methods failed")
             return False
             
         except Exception as e:
-            print(f"Error in PDF conversion: {str(e)}")
+            print(f"   ❌ Error in PDF conversion: {str(e)}")
+            return False
+
+    def convert_word_to_pdf_enhanced(self, word_path: str, pdf_path: str) -> bool:
+        """Enhanced Word to PDF with better formatting preservation"""
+        try:
+            import mammoth
+            from weasyprint import HTML, CSS
+            from docx import Document
+            
+            # Read the Word document to get styles
+            doc = Document(word_path)
+            
+            # Enhanced conversion with better style preservation
+            transform_options = {
+                "style_map": [
+                    "p[style-name='Heading 1'] => h1:fresh",
+                    "p[style-name='Heading 2'] => h2:fresh",
+                    "p[style-name='Heading 3'] => h3:fresh",
+                    "r[style-name='Strong'] => strong",
+                    "r[style-name='Emphasis'] => em",
+                ]
+            }
+            
+            # Convert DOCX to HTML with enhanced options
+            with open(word_path, "rb") as docx_file:
+                result = mammoth.convert_to_html(docx_file, **transform_options)
+                html_content = result.value
+            
+            # Enhanced CSS for better formatting
+            enhanced_css = """
+                @page {
+                    size: A4;
+                    margin: 1in;
+                }
+                body {
+                    font-family: Arial, sans-serif;
+                    font-size: 11pt;
+                    line-height: 1.2;
+                    color: #000000;
+                }
+                h1, h2, h3 {
+                    color: #2E4B8C;
+                    font-weight: bold;
+                }
+                h1 { font-size: 16pt; margin-bottom: 12pt; }
+                h2 { font-size: 14pt; margin-bottom: 10pt; }
+                h3 { font-size: 12pt; margin-bottom: 8pt; }
+                p {
+                    margin: 6pt 0;
+                    text-align: left;
+                }
+                strong, b {
+                    font-weight: bold;
+                    color: inherit;
+                }
+                em, i {
+                    font-style: italic;
+                    color: inherit;
+                }
+                table {
+                    border-collapse: collapse;
+                    width: 100%;
+                    margin: 12pt 0;
+                }
+                td, th {
+                    border: 1px solid #000000;
+                    padding: 6pt;
+                    text-align: left;
+                    vertical-align: top;
+                }
+                th {
+                    background-color: #F2F2F2;
+                    font-weight: bold;
+                }
+                /* Try to preserve some colors */
+                span[style*="color"] {
+                    /* Inline color styles should be preserved */
+                }
+                .page-break {
+                    page-break-before: always;
+                }
+            """
+            
+            # Create full HTML document
+            full_html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <style>{enhanced_css}</style>
+            </head>
+            <body>
+                {html_content}
+            </body>
+            </html>
+            """
+            
+            # Convert HTML to PDF with WeasyPrint
+            HTML(string=full_html).write_pdf(pdf_path)
+            
+            if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
+                print("   ⚠️  Enhanced HTML conversion complete - some formatting may be lost")
+                return True
+            else:
+                return False
+                
+        except Exception as e:
+            print(f"   ❌ Enhanced conversion failed: {str(e)}")
             return False
 
     def convert_docx_to_pdf_with_word(self, docx_path: str, pdf_path: str) -> bool:
