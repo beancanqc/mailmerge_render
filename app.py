@@ -751,99 +751,221 @@ class MailMergeProcessor:
             return False
 
     def convert_word_to_pdf_enhanced(self, word_path: str, pdf_path: str) -> bool:
-        """Enhanced Word to PDF with better formatting preservation"""
+        """Enhanced Word to PDF that preserves formatting like 'Print to PDF'"""
         try:
-            import mammoth
-            from weasyprint import HTML
+            from reportlab.pdfgen import canvas
+            from reportlab.lib.pagesizes import A4, letter
+            from reportlab.lib.colors import black, blue, red, green, HexColor
+            from reportlab.lib.units import inch
+            from docx import Document
+            from docx.shared import RGBColor
             
-            print("   🔄 Converting DOCX to HTML...")
+            print("   🎨 Creating PDF with preserved Word formatting...")
             
-            # Convert DOCX to HTML with basic options
-            with open(word_path, "rb") as docx_file:
-                result = mammoth.convert_to_html(docx_file)
-                html_content = result.value
+            # Read the Word document
+            doc = Document(word_path)
             
-            if not html_content or len(html_content) < 10:
-                print("   ❌ HTML conversion produced no content")
-                return False
+            # Create PDF canvas
+            c = canvas.Canvas(pdf_path, pagesize=A4)
+            width, height = A4
             
-            print(f"   ✅ HTML conversion successful ({len(html_content)} characters)")
+            # PDF positioning
+            margin = 72  # 1 inch margin
+            x_pos = margin
+            y_pos = height - margin
+            line_height = 14
             
-            # Enhanced CSS for better formatting
-            enhanced_css = """
-                @page {
-                    size: A4;
-                    margin: 1in;
-                }
-                body {
-                    font-family: Arial, sans-serif;
-                    font-size: 11pt;
-                    line-height: 1.2;
-                    color: #000000;
-                }
-                h1, h2, h3 {
-                    color: #2E4B8C;
-                    font-weight: bold;
-                }
-                h1 { font-size: 16pt; margin-bottom: 12pt; }
-                h2 { font-size: 14pt; margin-bottom: 10pt; }
-                h3 { font-size: 12pt; margin-bottom: 8pt; }
-                p {
-                    margin: 6pt 0;
-                    text-align: left;
-                }
-                strong, b {
-                    font-weight: bold;
-                }
-                em, i {
-                    font-style: italic;
-                }
-                table {
-                    border-collapse: collapse;
-                    width: 100%;
-                    margin: 12pt 0;
-                }
-                td, th {
-                    border: 1px solid #000000;
-                    padding: 6pt;
-                    text-align: left;
-                    vertical-align: top;
-                }
-                th {
-                    background-color: #F2F2F2;
-                    font-weight: bold;
-                }
-            """
+            page_count = 1
+            print(f"   📄 Starting PDF page {page_count}")
             
-            # Create full HTML document
-            full_html = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <style>{enhanced_css}</style>
-</head>
-<body>
-    {html_content}
-</body>
-</html>"""
+            for para_idx, paragraph in enumerate(doc.paragraphs):
+                # Check for page break
+                if y_pos < margin + 50:  # Near bottom of page
+                    c.showPage()
+                    page_count += 1
+                    print(f"   📄 New PDF page {page_count}")
+                    y_pos = height - margin
+                    x_pos = margin
+                
+                # Handle empty paragraphs (spacing)
+                if not paragraph.text.strip():
+                    y_pos -= line_height * 0.5
+                    continue
+                
+                # Process paragraph with runs (preserving formatting)
+                if len(paragraph.runs) == 0:
+                    # Paragraph with no runs
+                    c.setFont("Helvetica", 11)
+                    c.setFillColor(black)
+                    # Split long text into lines
+                    text_lines = self.wrap_text(paragraph.text, width - 2*margin, 11)
+                    for line in text_lines:
+                        if y_pos < margin + 20:
+                            c.showPage()
+                            page_count += 1
+                            y_pos = height - margin
+                        c.drawString(x_pos, y_pos, line)
+                        y_pos -= line_height
+                else:
+                    # Paragraph with formatted runs
+                    current_x = x_pos
+                    line_y = y_pos
+                    
+                    for run in paragraph.runs:
+                        if not run.text:
+                            continue
+                        
+                        # Determine font and formatting
+                        font_name = "Helvetica"
+                        font_size = 11
+                        
+                        # Handle bold
+                        if run.bold:
+                            font_name = "Helvetica-Bold"
+                        
+                        # Handle italic
+                        if run.italic:
+                            if run.bold:
+                                font_name = "Helvetica-BoldOblique"
+                            else:
+                                font_name = "Helvetica-Oblique"
+                        
+                        # Handle font size
+                        if run.font.size:
+                            font_size = min(int(run.font.size.pt), 24)  # Cap at 24pt
+                        
+                        # Handle color
+                        text_color = black
+                        if run.font.color and run.font.color.rgb:
+                            rgb = run.font.color.rgb
+                            try:
+                                text_color = HexColor(f"#{rgb.red:02x}{rgb.green:02x}{rgb.blue:02x}")
+                            except:
+                                text_color = black
+                        
+                        # Set font properties
+                        c.setFont(font_name, font_size)
+                        c.setFillColor(text_color)
+                        
+                        # Handle text wrapping within page width
+                        remaining_width = width - current_x - margin
+                        text_lines = self.wrap_text(run.text, remaining_width, font_size)
+                        
+                        for line_idx, line in enumerate(text_lines):
+                            if line_idx > 0:  # New line
+                                current_x = x_pos
+                                line_y -= line_height
+                                if line_y < margin + 20:
+                                    c.showPage()
+                                    page_count += 1
+                                    line_y = height - margin
+                            
+                            # Draw the text
+                            c.drawString(current_x, line_y, line)
+                            
+                            # Update position for next run
+                            text_width = c.stringWidth(line, font_name, font_size)
+                            current_x += text_width
+                            
+                            # If line is complete, move to next line
+                            if line_idx == len(text_lines) - 1 and current_x > width - margin - 100:
+                                current_x = x_pos
+                                line_y -= line_height
+                    
+                    y_pos = line_y - line_height
             
-            print("   🔄 Converting HTML to PDF...")
+            # Handle tables if any
+            for table in doc.tables:
+                if y_pos < margin + 100:  # Need space for table
+                    c.showPage()
+                    page_count += 1
+                    y_pos = height - margin
+                
+                # Draw table
+                table_width = width - 2*margin
+                col_width = table_width / len(table.columns)
+                row_height = 20
+                
+                print(f"   📊 Drawing table with {len(table.rows)} rows, {len(table.columns)} columns")
+                
+                for row_idx, row in enumerate(table.rows):
+                    if y_pos < margin + 30:
+                        c.showPage()
+                        page_count += 1
+                        y_pos = height - margin
+                    
+                    # Draw row cells
+                    for col_idx, cell in enumerate(row.cells):
+                        cell_x = margin + (col_idx * col_width)
+                        
+                        # Draw cell border
+                        c.setStrokeColor(black)
+                        c.rect(cell_x, y_pos - row_height, col_width, row_height)
+                        
+                        # Draw cell text
+                        c.setFont("Helvetica", 10)
+                        c.setFillColor(black)
+                        
+                        # Handle cell background for headers
+                        if row_idx == 0:  # Header row
+                            c.setFillColor(HexColor("#F2F2F2"))
+                            c.rect(cell_x, y_pos - row_height, col_width, row_height, fill=1)
+                            c.setFillColor(black)
+                        
+                        # Cell text (truncated if too long)
+                        cell_text = cell.text[:int(col_width/8)] if len(cell.text) > col_width/8 else cell.text
+                        c.drawString(cell_x + 5, y_pos - 15, cell_text)
+                    
+                    y_pos -= row_height
+                
+                y_pos -= 10  # Space after table
             
-            # Convert HTML to PDF with WeasyPrint
-            HTML(string=full_html).write_pdf(pdf_path)
+            # Save PDF
+            c.save()
             
+            # Verify PDF was created
             if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
-                print("   ⚠️  Enhanced HTML conversion complete - some formatting may be lost")
+                pdf_size = os.path.getsize(pdf_path)
+                print(f"   ✅ Enhanced PDF created with formatting preservation ({pdf_size:,} bytes, {page_count} pages)")
                 return True
             else:
-                print("   ❌ PDF file was not created")
+                print("   ❌ PDF creation failed")
                 return False
                 
         except Exception as e:
-            print(f"   ❌ Enhanced conversion failed: {str(e)}")
+            print(f"   ❌ Enhanced PDF conversion failed: {str(e)}")
             import traceback
             traceback.print_exc()
             return False
+    
+    def wrap_text(self, text, max_width, font_size):
+        """Helper function to wrap text to fit within specified width"""
+        try:
+            # Simple text wrapping - approximately 8-10 characters per inch at 11pt
+            chars_per_line = int(max_width / (font_size * 0.6))
+            if chars_per_line < 10:
+                chars_per_line = 10
+            
+            words = text.split()
+            lines = []
+            current_line = ""
+            
+            for word in words:
+                test_line = current_line + (" " if current_line else "") + word
+                if len(test_line) <= chars_per_line:
+                    current_line = test_line
+                else:
+                    if current_line:
+                        lines.append(current_line)
+                    current_line = word
+            
+            if current_line:
+                lines.append(current_line)
+            
+            return lines if lines else [text[:chars_per_line]]
+            
+        except:
+            return [text]
 
     def convert_docx_to_pdf_with_word(self, docx_path: str, pdf_path: str) -> bool:
         """Convert DOCX to PDF using Microsoft Word COM automation (Windows only)"""
