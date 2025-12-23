@@ -48,6 +48,7 @@ class MailMergeProcessor:
         self.template_path: Optional[str] = None
         self.data_path: Optional[str] = None
         self.data: List[Dict[str, Any]] = []
+        self.headers: List[str] = []  # Store Excel column headers
         
     def cleanup(self):
         """Clean up temporary files"""
@@ -67,6 +68,7 @@ class MailMergeProcessor:
         self.template_path = None
         self.data_path = None
         self.data = []
+        self.headers = []
         
     def load_template(self, template_path: str) -> bool:
         """Load and validate Word template file"""
@@ -115,16 +117,16 @@ class MailMergeProcessor:
                 raise ValueError("Excel file appears to be empty or has no data")
             
             # Convert to list of dictionaries
-            headers = []
+            self.headers = []  # Store headers as instance variable
             for cell in sheet[1]:
-                headers.append(str(cell.value) if cell.value is not None else "")
+                self.headers.append(str(cell.value) if cell.value is not None else "")
             
             self.data = []
             for row in sheet.iter_rows(min_row=2, values_only=True):
                 row_data = {}
                 for i, value in enumerate(row):
-                    if i < len(headers):
-                        row_data[headers[i]] = str(value) if value is not None else ""
+                    if i < len(self.headers):
+                        row_data[self.headers[i]] = str(value) if value is not None else ""
                 self.data.append(row_data)
             
             workbook.close()
@@ -465,12 +467,16 @@ class MailMergeProcessor:
             return False
     
     def generate_multiple_word(self, output_dir: str) -> bool:
-        """Generate multiple Word documents (one per record)"""
+        """Generate multiple Word documents (one per record) - filename based on first column"""
         try:
             if not self.template_path or not self.data:
                 raise ValueError("Template and data must be loaded first")
             
             os.makedirs(output_dir, exist_ok=True)
+            
+            # Get the first column header for filename generation
+            first_column_header = self.headers[0] if self.headers else None
+            print(f"Using first column '{first_column_header}' for filenames")
             
             for index, row_data in enumerate(self.data):
                 # Load template
@@ -479,13 +485,33 @@ class MailMergeProcessor:
                 # Replace merge fields
                 processed_doc = self.replace_merge_fields(doc, row_data)
                 
-                # Generate filename (use first field value or index)
-                first_value = list(row_data.values())[0] if row_data else f"record_{index+1}"
-                # Clean filename
-                safe_filename = re.sub(r'[<>:"/\\|?*]', '_', str(first_value))
+                # Generate filename using first column value
+                if first_column_header and first_column_header in row_data:
+                    filename_value = row_data[first_column_header]
+                else:
+                    # Fallback to first value in row or record number
+                    filename_value = list(row_data.values())[0] if row_data else f"record_{index+1}"
+                
+                # Clean filename - remove invalid characters for file system
+                safe_filename = re.sub(r'[<>:"/\\|?*]', '_', str(filename_value))
+                # Also remove leading/trailing spaces and dots
+                safe_filename = safe_filename.strip('. ')
+                # Ensure filename is not empty
+                if not safe_filename:
+                    safe_filename = f"record_{index+1}"
+                
                 output_path = os.path.join(output_dir, f"{safe_filename}.docx")
                 
+                # Handle duplicate filenames by adding index
+                counter = 1
+                base_path = output_path
+                while os.path.exists(output_path):
+                    name_without_ext = os.path.splitext(base_path)[0]
+                    output_path = f"{name_without_ext}_{counter}.docx"
+                    counter += 1
+                
                 processed_doc.save(output_path)
+                print(f"Created: {os.path.basename(output_path)}")
             
             return True
             

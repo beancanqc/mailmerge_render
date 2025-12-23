@@ -1,0 +1,15 @@
+# This is a placeholder file for the mail merge tutorial video
+# Replace this file with your actual Tutorial_mail_merge.mp4 video
+
+# File location: /static/Tutorial_mail_merge.mp4
+# The video should demonstrate:
+# 1. How to create a Word template with {{FieldName}} placeholders
+# 2. How to prepare Excel data with matching column headers
+# 3. How to upload both files to the mail merge tool
+# 4. How to select output format and download results
+
+# Recommended video specifications:
+# - Format: MP4 (H.264)
+# - Resolution: 1920x1080 or 1280x720
+# - Duration: 3-5 minutes
+# - File size: Under 50MB for web performance
