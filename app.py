@@ -623,6 +623,19 @@ def serve_js():
     except FileNotFoundError:
         return "/* JavaScript file not found */", 404
 
+@app.route('/static/<filename>')
+def serve_static(filename):
+    """Serve static files"""
+    try:
+        static_folder = 'static'
+        file_path = os.path.join(static_folder, filename)
+        if os.path.exists(file_path):
+            return send_file(file_path)
+        else:
+            return "File not found", 404
+    except Exception as e:
+        return f"Error: {str(e)}", 500
+
 @app.route('/upload_template', methods=['POST'])
 def upload_template():
     """Handle template file upload"""
