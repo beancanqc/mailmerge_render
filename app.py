@@ -1121,8 +1121,22 @@ def debug_info():
 
 @app.route('/splitword')
 def splitword():
-    """Split Word tool page"""
-    return send_from_directory('.', 'splitword.html')
+    """Serve the split word page"""
+    try:
+        with open('splitword.html', 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        return "<h1>Split Word Tool</h1><p>Split word page not found. Please upload splitword.html</p>"
+
+@app.route('/splitword.js')
+def serve_splitword_js():
+    """Serve Split Word JavaScript file"""
+    try:
+        with open('splitword.js', 'r', encoding='utf-8') as f:
+            js_content = f.read()
+        return js_content, 200, {'Content-Type': 'application/javascript'}
+    except FileNotFoundError:
+        return "console.error('splitword.js not found');", 404, {'Content-Type': 'application/javascript'}
 
 @app.route('/upload_splitdoc', methods=['POST'])
 def upload_splitdoc():
