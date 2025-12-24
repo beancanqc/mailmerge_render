@@ -87,7 +87,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (data.success) {
                     documentUploaded = true;
                     currentDocument = data;
-                    totalPages = data.total_pages;
+                    totalPages = data.page_count;
 
                     // Update upload UI
                     documentDrop.innerHTML = `
