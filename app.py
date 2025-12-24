@@ -709,6 +709,9 @@ class SplitWordProcessor:
                     for i, row in enumerate(table.rows):
                         for j, cell in enumerate(row.cells):
                             new_table.cell(i, j).text = cell.text
+                            
+        except Exception as e:
+            print(f"Error copying pages: {str(e)}")
 
 
 # Store processors per session
