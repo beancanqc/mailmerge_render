@@ -553,6 +553,359 @@ body {
     object-fit: cover;
 }
 
+/* Split Word Specific Styles */
+.split-steps {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 30px;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.full-width {
+    grid-column: 1 / -1;
+}
+
+.split-methods {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.method-option {
+    position: relative;
+}
+
+.method-option input[type="radio"] {
+    display: none;
+}
+
+.method-option label {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+    border: 2px solid #e2e8f0;
+    border-radius: 12px;
+    background-color: white;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-align: center;
+}
+
+.method-option input[type="radio"]:checked+label {
+    border-color: #4299e1;
+    background-color: #ebf8ff;
+}
+
+.method-option label:hover {
+    border-color: #cbd5e0;
+}
+
+.method-icon {
+    font-size: 32px;
+    margin-bottom: 8px;
+}
+
+.method-text {
+    font-size: 16px;
+    font-weight: 500;
+    color: #4a5568;
+    margin-bottom: 4px;
+}
+
+.method-desc {
+    font-size: 12px;
+    color: #718096;
+}
+
+.document-preview {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.preview-info {
+    font-weight: 500;
+    margin-bottom: 16px;
+    color: #4a5568;
+}
+
+.pages-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+    gap: 8px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.page-preview {
+    aspect-ratio: 1;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f8f9fa;
+    font-size: 12px;
+    font-weight: 500;
+    color: #4a5568;
+}
+
+.range-tabs {
+    display: flex;
+    margin-bottom: 20px;
+    border-bottom: 2px solid #e2e8f0;
+}
+
+.range-tab {
+    background: transparent;
+    border: none;
+    padding: 12px 20px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #718096;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+}
+
+.range-tab.active {
+    color: #4299e1;
+    border-bottom-color: #4299e1;
+}
+
+.range-tab:hover:not(.active) {
+    color: #4a5568;
+}
+
+.range-content {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.range-panel {
+    display: none;
+}
+
+.range-panel.active {
+    display: block;
+}
+
+.ranges-list {
+    margin-bottom: 16px;
+}
+
+.range-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+
+.range-item label {
+    min-width: 80px;
+    font-weight: 500;
+    color: #4a5568;
+}
+
+.range-item input[type="number"] {
+    width: 80px;
+    padding: 8px 12px;
+    border: 2px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.range-item input[type="number"]:focus {
+    outline: none;
+    border-color: #4299e1;
+}
+
+.add-range-btn {
+    background-color: #4299e1;
+    color: white;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.add-range-btn:hover {
+    background-color: #3182ce;
+}
+
+.remove-range {
+    background: transparent;
+    border: none;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px;
+}
+
+.fixed-preview {
+    margin-top: 16px;
+    padding: 16px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    font-size: 14px;
+}
+
+.fixed-preview ul {
+    margin: 8px 0 0 20px;
+}
+
+.selectable-pages {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.selectable-page {
+    position: relative;
+}
+
+.selectable-page input[type="checkbox"] {
+    display: none;
+}
+
+.selectable-page label {
+    display: block;
+    aspect-ratio: 1;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8f9fa;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.selectable-page input[type="checkbox"]:checked+label {
+    border-color: #4299e1;
+    background-color: #ebf8ff;
+}
+
+.selectable-page input[type="checkbox"]:checked+label::after {
+    content: '✓';
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    color: #4299e1;
+    font-weight: bold;
+    font-size: 14px;
+}
+
+.selectable-page label:hover {
+    border-color: #cbd5e0;
+}
+
+.page-number {
+    font-size: 12px;
+    font-weight: 500;
+    color: #4a5568;
+}
+
+.selection-controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.select-all-btn,
+.select-none-btn {
+    background-color: #e2e8f0;
+    color: #4a5568;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.select-all-btn:hover,
+.select-none-btn:hover {
+    background-color: #cbd5e0;
+}
+
+.selected-count {
+    font-weight: 500;
+    color: #4a5568;
+}
+
+.merge-option {
+    margin-top: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.merge-option input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+}
+
+.merge-option label {
+    font-size: 14px;
+    color: #4a5568;
+    cursor: pointer;
+}
+
+.split-btn {
+    background-color: #4299e1;
+    color: white;
+    border: none;
+    padding: 16px 32px;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+    width: 100%;
+    max-width: 300px;
+    margin: 0 auto;
+    display: block;
+}
+
+.split-btn:hover:not(:disabled) {
+    background-color: #3182ce;
+}
+
+.split-btn:disabled {
+    background-color: #cbd5e0;
+    cursor: not-allowed;
+}
+
+.process-status {
+    margin-top: 16px;
+    text-align: center;
+}
+
+.process-status .success {
+    color: #48bb78;
+    font-weight: 500;
+}
+
+.process-status .error {
+    color: #e53e3e;
+    font-weight: 500;
+}
+
 /* Responsive design */
 @media (max-width: 768px) {
     .header .container {
