@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>The Office Sigma</title>
+    <title>Split Word - The Office Sigma</title>
     <link rel="icon" type="image/png" href="/static/office-logo.png">
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
@@ -23,15 +23,15 @@
             <div class="container">
                 <h1 class="hero-title">Split Word</h1>
                 <p class="hero-description">
-                    Split your Word documents by pages, ranges, or custom selections. Extract exactly what you need!
+                    Split your Word documents into smaller files by ranges or selected pages. Choose between individual files or merged documents.
                 </p>
             </div>
         </section>
 
         <section class="steps-section">
             <div class="container">
-                <div class="steps-container split-steps">
-                    <!-- Step 1: Upload -->
+                <div class="split-workflow">
+                    <!-- Step 1: Upload Document -->
                     <div class="step" id="upload-step">
                         <div class="step-number">1</div>
                         <h3 class="step-title">Upload Word Document</h3>
@@ -43,103 +43,163 @@
                         </div>
                     </div>
 
-                    <!-- Step 2: Method Selection (Initially Hidden) -->
+                    <!-- Step 2: Choose Split Method -->
                     <div class="step" id="method-step" style="display: none;">
                         <div class="step-number">2</div>
                         <h3 class="step-title">Choose Split Method</h3>
                         <div class="split-methods">
-                            <div class="method-option">
-                                <input type="radio" id="range-method" name="split-method" value="range">
-                                <label for="range-method">
-                                    <span class="method-icon">📐</span>
-                                    <span class="method-text">Range-Based</span>
-                                    <span class="method-desc">Split by page ranges</span>
-                                </label>
-                            </div>
-                            <div class="method-option">
-                                <input type="radio" id="select-method" name="split-method" value="select">
-                                <label for="select-method">
-                                    <span class="method-icon">☑️</span>
-                                    <span class="method-text">Select Pages</span>
-                                    <span class="method-desc">Choose specific pages</span>
-                                </label>
-                            </div>
+                            <button class="method-btn" id="range-method-btn">
+                                <span class="method-icon">📊</span>
+                                <span class="method-text">Split by Range</span>
+                                <span class="method-desc">Define custom or fixed page ranges</span>
+                            </button>
+                            <button class="method-btn" id="pages-method-btn">
+                                <span class="method-icon">🗂️</span>
+                                <span class="method-text">Split by Pages</span>
+                                <span class="method-desc">Select individual pages manually</span>
+                            </button>
                         </div>
                     </div>
 
-                    <!-- Step 3: Document Preview (Initially Hidden) -->
-                    <div class="step full-width" id="preview-step" style="display: none;">
+                    <!-- Step 3A: Split by Range Configuration -->
+                    <div class="step" id="range-config-step" style="display: none;">
                         <div class="step-number">3</div>
-                        <h3 class="step-title">Document Preview</h3>
-                        <div id="document-preview" class="document-preview">
-                            <p class="preview-info">Total pages: <span id="total-pages">0</span></p>
-                            <div id="pages-container" class="pages-container"></div>
-                        </div>
-                    </div>
-
-                    <!-- Step 4: Range Configuration (Initially Hidden) -->
-                    <div class="step full-width" id="range-config" style="display: none;">
-                        <div class="step-number">4</div>
-                        <h3 class="step-title">Configure Ranges</h3>
-                        <div class="range-tabs">
-                            <button class="range-tab active" data-tab="custom">Custom Ranges</button>
-                            <button class="range-tab" data-tab="fixed">Fixed Ranges</button>
-                        </div>
+                        <h3 class="step-title">Configure Page Ranges</h3>
                         
-                        <div class="range-content">
-                            <!-- Custom Ranges -->
-                            <div id="custom-ranges" class="range-panel active">
-                                <div class="ranges-list" id="ranges-list">
-                                    <div class="range-item">
-                                        <label>Range 1:</label>
-                                        <input type="number" class="range-start" placeholder="Start page" min="1">
-                                        <span>to</span>
-                                        <input type="number" class="range-end" placeholder="End page" min="1">
-                                        <button class="remove-range" style="display: none;">❌</button>
-                                    </div>
-                                </div>
-                                <button class="add-range-btn">+ Add Range</button>
-                                <div class="merge-option">
-                                    <input type="checkbox" id="merge-ranges">
-                                    <label for="merge-ranges">Merge all ranges into one file</label>
-                                </div>
+                        <div class="range-type-selector">
+                            <div class="range-type-option">
+                                <input type="radio" id="custom-ranges" name="range-type" value="custom" checked>
+                                <label for="custom-ranges">Custom Ranges</label>
                             </div>
-
-                            <!-- Fixed Ranges -->
-                            <div id="fixed-ranges" class="range-panel">
-                                <label for="pages-per-split">Pages per file:</label>
-                                <input type="number" id="pages-per-split" min="1" value="3" placeholder="e.g., 3">
-                                <div id="fixed-preview" class="fixed-preview"></div>
+                            <div class="range-type-option">
+                                <input type="radio" id="fixed-ranges" name="range-type" value="fixed">
+                                <label for="fixed-ranges">Fixed Size Ranges</label>
                             </div>
                         </div>
+
+                        <!-- Custom Ranges -->
+                        <div id="custom-ranges-container">
+                            <div class="range-controls">
+                                <button id="add-range-btn" class="add-range-btn">+ Add Range</button>
+                            </div>
+                            <div class="ranges-list" id="ranges-list">
+                                <!-- Range items will be added here -->
+                            </div>
+                        </div>
+
+                        <!-- Fixed Ranges -->
+                        <div id="fixed-ranges-container" style="display: none;">
+                            <div class="fixed-range-control">
+                                <label for="pages-per-range">Pages per range:</label>
+                                <input type="number" id="pages-per-range" min="1" value="3">
+                                <button id="generate-fixed-ranges-btn">Generate Ranges</button>
+                            </div>
+                            <div class="fixed-ranges-preview" id="fixed-ranges-preview">
+                                <!-- Fixed ranges preview will appear here -->
+                            </div>
+                        </div>
+
+                        <div class="range-output-options">
+                            <div class="output-option">
+                                <input type="radio" id="separate-ranges" name="range-output" value="separate" checked>
+                                <label for="separate-ranges">
+                                    <span class="output-icon">📚</span>
+                                    <span class="output-text">Separate Files</span>
+                                </label>
+                            </div>
+                            <div class="output-option">
+                                <input type="radio" id="merged-ranges" name="range-output" value="merged">
+                                <label for="merged-ranges">
+                                    <span class="output-icon">📘</span>
+                                    <span class="output-text">Merged File</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <button class="split-btn" id="split-by-range-btn" disabled>Split by Ranges</button>
                     </div>
 
-                    <!-- Step 5: Page Selection (Initially Hidden) -->
-                    <div class="step full-width" id="page-selection" style="display: none;">
-                        <div class="step-number">4</div>
+                    <!-- Step 3B: Split by Pages Configuration -->
+                    <div class="step" id="pages-config-step" style="display: none;">
+                        <div class="step-number">3</div>
                         <h3 class="step-title">Select Pages</h3>
-                        <div class="selection-controls">
-                            <button class="select-all-btn">Select All</button>
-                            <button class="select-none-btn">Select None</button>
-                            <span class="selected-count">Selected: <span id="selected-count">0</span> pages</span>
+                        
+                        <div class="pages-selection-header">
+                            <div class="selection-controls">
+                                <button id="select-all-pages">Select All</button>
+                                <button id="deselect-all-pages">Deselect All</button>
+                                <span class="selection-count">0 pages selected</span>
+                            </div>
                         </div>
-                        <div id="selectable-pages" class="selectable-pages"></div>
-                        <div class="merge-option">
-                            <input type="checkbox" id="merge-selected">
-                            <label for="merge-selected">Merge selected pages into one file</label>
+
+                        <div class="pages-grid" id="pages-grid">
+                            <!-- Page thumbnails will be populated here -->
+                        </div>
+
+                        <div class="pages-output-options">
+                            <div class="output-option">
+                                <input type="radio" id="separate-pages" name="pages-output" value="separate" checked>
+                                <label for="separate-pages">
+                                    <span class="output-icon">📄</span>
+                                    <span class="output-text">Separate Files</span>
+                                </label>
+                            </div>
+                            <div class="output-option">
+                                <input type="radio" id="merged-pages" name="pages-output" value="merged">
+                                <label for="merged-pages">
+                                    <span class="output-icon">📘</span>
+                                    <span class="output-text">Merged File</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <button class="split-btn" id="split-by-pages-btn" disabled>Split Selected Pages</button>
+                    </div>
+
+                    <!-- Processing Display -->
+                    <div class="processing-display" id="processing-display" style="display: none;">
+                        <div class="processing-content">
+                            <div class="spinner"></div>
+                            <h3>Processing Document...</h3>
+                            <p>Please wait while we split your document</p>
                         </div>
                     </div>
 
-                    <!-- Step 6: Process (Initially Hidden) -->
-                    <div class="step" id="process-step" style="display: none;">
-                        <div class="step-number">🎯</div>
-                        <h3 class="step-title">Process Split</h3>
-                        <button class="split-btn" id="process-btn" disabled>Split Document</button>
-                        <div class="process-status" id="process-status"></div>
+                    <!-- Download Ready -->
+                    <div class="download-ready" id="download-ready" style="display: none;">
+                        <div class="download-content">
+                            <div class="download-icon">✅</div>
+                            <h3>Split Complete!</h3>
+                            <p>Your document has been split successfully</p>
+                            <a class="download-btn" id="download-link" href="#" download>
+                                <span>📥</span>
+                                Download Files
+                            </a>
+                            <button class="restart-btn" id="restart-btn">Split Another Document</button>
+                        </div>
                     </div>
                 </div>
             </div>
         </section>
+
+        <!-- Document Info Display -->
+        <div class="document-info" id="document-info" style="display: none;">
+            <div class="container">
+                <div class="info-content">
+                    <h4>Document Information</h4>
+                    <div class="info-details">
+                        <span class="info-item">
+                            <strong>Total Pages:</strong> 
+                            <span id="total-pages-count">-</span>
+                        </span>
+                        <span class="info-item">
+                            <strong>File Name:</strong> 
+                            <span id="document-name">-</span>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
     </main>
 
     <script src="splitword.js"></script>

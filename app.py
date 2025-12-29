@@ -10,7 +10,6 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 import uuid
-from copy import deepcopy
 
 from flask import Flask, request, jsonify, send_file, session
 from werkzeug.utils import secure_filename
@@ -21,6 +20,7 @@ import re
 from typing import List, Dict, Any, Optional
 
 from jinja2 import Template
+from word_splitter import WordSplitter
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
@@ -546,223 +546,9 @@ class MailMergeProcessor:
             print(f"Error processing mail merge: {str(e)}")
             return False
 
-
-class SplitWordProcessor:
-    def __init__(self, session_id=None):
-        self.session_id = session_id or str(uuid.uuid4())
-        self.document_path: Optional[str] = None
-        self.page_count: int = 0
-        
-    def cleanup(self):
-        """Clean up temporary files"""
-        try:
-            if self.document_path and os.path.exists(self.document_path):
-                os.remove(self.document_path)
-                print(f"Cleaned up document: {self.document_path}")
-        except Exception as e:
-            print(f"Cleanup error: {str(e)}")
-        
-        # Reset state
-        self.document_path = None
-        self.page_count = 0
-        
-    def load_document(self, doc_path: str) -> bool:
-        """Load and validate Word document file"""
-        try:
-            # Clean up previous document
-            if self.document_path and os.path.exists(self.document_path):
-                os.remove(self.document_path)
-            
-            if not os.path.exists(doc_path):
-                raise FileNotFoundError(f"Document file not found: {doc_path}")
-            
-            if not doc_path.lower().endswith('.docx'):
-                raise ValueError("Document must be a Word file (.docx)")
-            
-            # Test if file can be opened and count pages
-            doc = Document(doc_path)
-            self.page_count = self._count_pages(doc)
-            
-            self.document_path = doc_path
-            print(f"Document loaded successfully: {doc_path} with {self.page_count} pages")
-            return True
-            
-        except Exception as e:
-            print(f"Error loading document: {str(e)}")
-            return False
-    
-    def _count_pages(self, doc) -> int:
-        """Estimate page count based on content analysis"""
-        page_count = 1  # Start with 1 page
-        
-        # Count explicit page breaks first
-        explicit_breaks = 0
-        for paragraph in doc.paragraphs:
-            for run in paragraph.runs:
-                if '\f' in run.text or '\x0c' in run.text:  # Form feed / page break
-                    explicit_breaks += 1
-        
-        # Count section breaks (each new section typically starts a new page)
-        section_breaks = max(0, len(doc.sections) - 1)
-        
-        # If we have explicit breaks, use those
-        if explicit_breaks > 0 or section_breaks > 0:
-            print(f"Found explicit breaks: {explicit_breaks}, section breaks: {section_breaks}")
-            return 1 + explicit_breaks + section_breaks
-        
-        # Estimate based on content (fallback method)
-        total_text_length = 0
-        paragraph_count = 0
-        non_empty_paragraphs = 0
-        table_rows = 0
-        
-        for paragraph in doc.paragraphs:
-            paragraph_count += 1
-            text = paragraph.text.strip()
-            if text:  # Only count non-empty paragraphs
-                total_text_length += len(text)
-                non_empty_paragraphs += 1
-        
-        # Count table content
-        for table in doc.tables:
-            table_rows += len(table.rows)
-        
-        # More aggressive estimation - typical documents have less content per page
-        # Standard page: ~250-300 words, ~1500-2000 characters including spaces
-        chars_per_page = 1200  # Reduced from 2000 - more realistic for formatted docs
-        lines_per_page = 20    # Reduced from 30 - accounts for spacing, headers, etc.
-        
-        # Estimate pages based on different metrics
-        pages_by_chars = max(1, (total_text_length + 600) // chars_per_page)  # Add buffer
-        pages_by_paragraphs = max(1, (non_empty_paragraphs + 15) // lines_per_page)  # Add buffer
-        pages_by_tables = (table_rows + 8) // 10 if table_rows > 0 else 0  # ~10 table rows per page
-        
-        # Use the highest estimate
-        estimated_pages = max(pages_by_chars, pages_by_paragraphs, pages_by_tables)
-        
-        # Debug logging
-        print(f"Page estimation debug:")
-        print(f"  Total characters: {total_text_length}")
-        print(f"  Non-empty paragraphs: {non_empty_paragraphs}")
-        print(f"  Table rows: {table_rows}")
-        print(f"  Pages by chars: {pages_by_chars}")
-        print(f"  Pages by paragraphs: {pages_by_paragraphs}")
-        print(f"  Pages by tables: {pages_by_tables}")
-        print(f"  Final estimate: {estimated_pages}")
-        
-        # Ensure minimum of 1, maximum of 50
-        return max(1, min(estimated_pages, 50))
-    
-    def split_by_ranges(self, ranges: List[tuple], output_dir: str) -> List[str]:
-        """Split document by page ranges"""
-        try:
-            if not self.document_path or not os.path.exists(self.document_path):
-                raise ValueError("No document loaded")
-            
-            output_files = []
-            doc = Document(self.document_path)
-            
-            for i, (start_page, end_page) in enumerate(ranges):
-                # Create a new document for this range
-                new_doc = Document()
-                
-                # Copy document content for the specified pages
-                self._copy_pages_to_document(doc, new_doc, start_page, end_page)
-                
-                # Save the split document
-                output_filename = f"pages_{start_page}-{end_page}.docx"
-                output_path = os.path.join(output_dir, output_filename)
-                new_doc.save(output_path)
-                output_files.append(output_path)
-                
-            return output_files
-            
-        except Exception as e:
-            print(f"Error splitting by ranges: {str(e)}")
-            return []
-    
-    def split_by_pages(self, selected_pages: List[int], output_dir: str, merge_selected: bool = False) -> List[str]:
-        """Split document by selected pages"""
-        try:
-            if not self.document_path or not os.path.exists(self.document_path):
-                raise ValueError("No document loaded")
-            
-            output_files = []
-            doc = Document(self.document_path)
-            
-            if merge_selected:
-                # Create one document with all selected pages
-                new_doc = Document()
-                for page_num in selected_pages:
-                    self._copy_pages_to_document(doc, new_doc, page_num, page_num)
-                
-                output_filename = f"selected_pages_{'-'.join(map(str, selected_pages))}.docx"
-                output_path = os.path.join(output_dir, output_filename)
-                new_doc.save(output_path)
-                output_files.append(output_path)
-            else:
-                # Create separate documents for each page
-                for page_num in selected_pages:
-                    new_doc = Document()
-                    self._copy_pages_to_document(doc, new_doc, page_num, page_num)
-                    
-                    output_filename = f"page_{page_num}.docx"
-                    output_path = os.path.join(output_dir, output_filename)
-                    new_doc.save(output_path)
-                    output_files.append(output_path)
-                    
-            return output_files
-            
-        except Exception as e:
-            print(f"Error splitting by pages: {str(e)}")
-            return []
-    
-    def _copy_pages_to_document(self, source_doc, target_doc, start_page: int, end_page: int):
-        """Copy specified pages from source to target document"""
-        try:
-            current_page = 1
-            
-            # This is a simplified implementation
-            # For a more accurate page-based split, you'd need to use python-docx2txt or similar
-            # Here we approximate by copying paragraphs and checking for page breaks
-            
-            for paragraph in source_doc.paragraphs:
-                # Check if we're in the target page range
-                if start_page <= current_page <= end_page:
-                    # Copy paragraph with formatting
-                    new_paragraph = target_doc.add_paragraph()
-                    for run in paragraph.runs:
-                        new_run = new_paragraph.add_run(run.text)
-                        # Copy formatting
-                        new_run.bold = run.bold
-                        new_run.italic = run.italic
-                        new_run.underline = run.underline
-                        if run.font.name:
-                            new_run.font.name = run.font.name
-                        if run.font.size:
-                            new_run.font.size = run.font.size
-                
-                # Check for page breaks in paragraph text
-                paragraph_text = paragraph.text
-                if '\f' in paragraph_text or '\x0c' in paragraph_text:
-                    current_page += 1
-                    
-            # Copy tables if in range
-            for table in source_doc.tables:
-                if start_page <= current_page <= end_page:
-                    # This is simplified - in reality, you'd need to check table position
-                    new_table = target_doc.add_table(rows=len(table.rows), cols=len(table.columns))
-                    for i, row in enumerate(table.rows):
-                        for j, cell in enumerate(row.cells):
-                            new_table.cell(i, j).text = cell.text
-                            
-        except Exception as e:
-            print(f"Error copying pages: {str(e)}")
-
-
 # Store processors per session
 processors = {}
-split_processors = {}
+splitters = {}
 
 def get_processor():
     """Get or create processor for current session"""
@@ -782,23 +568,23 @@ def get_processor():
     print(f"📊 Total active processors: {len(processors)}")
     return processors[session_id]
 
-def get_split_processor():
-    """Get or create split processor for current session"""
+def get_splitter():
+    """Get or create splitter for current session"""
     if 'session_id' not in session:
         session['session_id'] = str(uuid.uuid4())
-        print(f"🆕 Created new session: {session['session_id']}")
+        print(f"🆕 Created new session for splitter: {session['session_id']}")
     
     session_id = session['session_id']
-    print(f"🔄 Using session: {session_id}")
+    print(f"🔄 Using session for splitter: {session_id}")
     
-    if session_id not in split_processors:
-        split_processors[session_id] = SplitWordProcessor(session_id)
-        print(f"✂️ Created new split processor for session: {session_id}")
+    if session_id not in splitters:
+        splitters[session_id] = WordSplitter(session_id, OUTPUT_FOLDER)
+        print(f"🆕 Created new splitter for session: {session_id}")
     else:
-        print(f"♻️ Reusing existing split processor for session: {session_id}")
+        print(f"♻️  Reusing existing splitter for session: {session_id}")
     
-    print(f"📊 Total active split processors: {len(split_processors)}")
-    return split_processors[session_id]
+    print(f"📊 Total active splitters: {len(splitters)}")
+    return splitters[session_id]
 
 def cleanup_old_processors():
     """Clean up old processors (simple cleanup)"""
@@ -808,11 +594,11 @@ def cleanup_old_processors():
             processors[session_id].cleanup()
             del processors[session_id]
     
-    if len(split_processors) > 50:  # Clean up split processors too
-        old_sessions = list(split_processors.keys())[:25]
+    if len(splitters) > 50:  # Clean up if too many splitters
+        old_sessions = list(splitters.keys())[:25]
         for session_id in old_sessions:
-            split_processors[session_id].cleanup()
-            del split_processors[session_id]
+            splitters[session_id].cleanup()
+            del splitters[session_id]
 
 # Flask Routes
 @app.route('/')
@@ -1162,198 +948,156 @@ def debug_info():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-
-# Split Word Tool Routes
-
+# Word Splitting Routes
 @app.route('/splitword')
 def splitword():
     """Serve the split word page"""
-    try:
-        with open('splitword.html', 'r', encoding='utf-8') as f:
-            return f.read()
-    except FileNotFoundError:
-        return "<h1>Split Word Tool</h1><p>Split word page not found. Please upload splitword.html</p>"
+    return send_file('splitword.html')
 
 @app.route('/splitword.js')
-def serve_splitword_js():
-    """Serve Split Word JavaScript file"""
+def splitword_js():
+    """Serve the split word JavaScript file"""
     try:
-        with open('splitword.js', 'r', encoding='utf-8') as f:
-            js_content = f.read()
-        return js_content, 200, {'Content-Type': 'application/javascript'}
+        return send_file('splitword.js', mimetype='application/javascript')
     except FileNotFoundError:
-        return "console.error('splitword.js not found');", 404, {'Content-Type': 'application/javascript'}
+        return '', 404
 
-@app.route('/upload_splitdoc', methods=['POST'])
-def upload_splitdoc():
-    """Handle Word document upload for splitting"""
+@app.route('/upload_document', methods=['POST'])
+def upload_document():
+    """Handle document upload for splitting"""
     try:
+        print("Document upload request received for splitting")
+        
+        splitter = get_splitter()
+        
         if 'file' not in request.files:
-            return jsonify({'error': 'No file provided', 'success': False}), 400
+            print("No file in request")
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
         
         file = request.files['file']
         if file.filename == '':
-            return jsonify({'error': 'No file selected', 'success': False}), 400
+            print("Empty filename")
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
         
-        if not file.filename.lower().endswith('.docx'):
-            return jsonify({'error': 'Only .docx files are supported', 'success': False}), 400
+        print(f"Document file: {file.filename}")
         
-        # Generate secure filename
-        original_name = secure_filename(file.filename)
-        unique_name = f"{uuid.uuid4().hex}_{original_name}"
-        filepath = os.path.join(tempfile.gettempdir(), unique_name)
+        if not allowed_file(file.filename, ALLOWED_TEMPLATE_EXTENSIONS):
+            print(f"Invalid file type: {file.filename}")
+            return jsonify({'success': False, 'error': 'Only .docx files are allowed'}), 400
         
         # Save uploaded file
+        filename = secure_filename(f"split_doc_{splitter.session_id}_{file.filename}")
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
-        print(f"✂️ Uploaded document for splitting: {filepath}")
+        print(f"Document saved: {filepath}")
         
-        # Get processor and load document
-        processor = get_split_processor()
-        if processor.load_document(filepath):
-            return jsonify({
-                'success': True, 
-                'message': f'Document loaded successfully! Found {processor.page_count} pages.',
-                'page_count': processor.page_count,
-                'filename': original_name
-            })
+        # Load document into splitter
+        if splitter.load_document(filepath):
+            print(f"✅ Document loaded successfully for session {splitter.session_id}")
+            return jsonify({'success': True, 'message': 'Document uploaded successfully'})
         else:
-            return jsonify({'error': 'Failed to load document', 'success': False}), 500
+            print(f"❌ Failed to load document for session {splitter.session_id}")
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            return jsonify({'success': False, 'error': 'Invalid document file'}), 400
             
     except Exception as e:
-        print(f"❌ Error uploading document: {str(e)}")
-        return jsonify({'error': str(e), 'success': False}), 500
+        print(f"Document upload error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/process_split', methods=['POST'])
-def process_split():
-    """Process document splitting"""
+@app.route('/get_document_pages', methods=['GET'])
+def get_document_pages():
+    """Get document page information for thumbnails"""
     try:
-        processor = get_split_processor()
+        splitter = get_splitter()
         
-        if not processor.document_path:
-            return jsonify({'error': 'No document loaded', 'success': False}), 400
+        if not splitter.document_path:
+            return jsonify({'success': False, 'error': 'No document loaded'}), 400
+        
+        pages = splitter.get_page_thumbnails()
+        return jsonify({
+            'success': True,
+            'pages': pages,
+            'total_pages': len(pages)
+        })
+        
+    except Exception as e:
+        print(f"Error getting document pages: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/split_by_range', methods=['POST'])
+def split_by_range():
+    """Split document by specified ranges"""
+    try:
+        splitter = get_splitter()
+        
+        if not splitter.document_path:
+            return jsonify({'success': False, 'error': 'No document loaded'}), 400
         
         data = request.get_json()
-        if not data:
-            return jsonify({'error': 'No data provided', 'success': False}), 400
+        ranges = data.get('ranges', [])
+        output_type = data.get('output_type', 'separate')  # 'separate' or 'merged'
         
-        method = data.get('method')
-        if not method:
-            return jsonify({'error': 'No splitting method specified', 'success': False}), 400
+        if not ranges:
+            return jsonify({'success': False, 'error': 'No ranges specified'}), 400
         
-        # Create temporary output directory
-        output_dir = tempfile.mkdtemp(prefix='split_output_')
-        output_files = []
+        print(f"Splitting by ranges: {ranges}, output_type: {output_type}")
         
-        if method == 'range':
-            # Range-based splitting
-            ranges_data = data.get('ranges', [])
-            ranges = []
-            
-            for range_item in ranges_data:
-                start = range_item.get('start')
-                end = range_item.get('end')
-                if start and end:
-                    ranges.append((int(start), int(end)))
-            
-            if not ranges:
-                return jsonify({'error': 'No valid ranges provided', 'success': False}), 400
-            
-            output_files = processor.split_by_ranges(ranges, output_dir)
-            
-        elif method == 'pages':
-            # Page selection splitting
-            selected_pages = data.get('selected_pages', [])
-            merge_selected = data.get('merge_selected', False)
-            
-            if not selected_pages:
-                return jsonify({'error': 'No pages selected', 'success': False}), 400
-            
-            output_files = processor.split_by_pages(selected_pages, output_dir, merge_selected)
-            
+        result_path = splitter.split_by_range(ranges, output_type)
+        
+        # Generate download filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        if output_type == 'separate':
+            download_filename = f"split_ranges_{timestamp}.zip"
         else:
-            return jsonify({'error': f'Unknown method: {method}', 'success': False}), 400
-        
-        if not output_files:
-            shutil.rmtree(output_dir, ignore_errors=True)
-            return jsonify({'error': 'No output files generated', 'success': False}), 500
-        
-        if len(output_files) == 1:
-            # Single file - send directly
-            output_file = output_files[0]
-            
-            # Generate download filename
-            original_name = os.path.splitext(os.path.basename(processor.document_path))[0]
-            if method == 'range':
-                download_name = f"{original_name}_split.docx"
-            else:
-                download_name = f"{original_name}_pages.docx"
-            
-            def remove_file():
-                try:
-                    shutil.rmtree(output_dir, ignore_errors=True)
-                    processor.cleanup()
-                except:
-                    pass
-            
-            response = send_file(
-                output_file,
-                as_attachment=True,
-                download_name=download_name,
-                mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-            )
-            
-            # Schedule cleanup after response is sent
-            response.call_on_close(remove_file)
-            return response
-            
-        else:
-            # Multiple files - create ZIP
-            zip_path = os.path.join(output_dir, 'split_documents.zip')
-            
-            with zipfile.ZipFile(zip_path, 'w') as zipf:
-                for file_path in output_files:
-                    zipf.write(file_path, os.path.basename(file_path))
-            
-            # Generate download filename
-            original_name = os.path.splitext(os.path.basename(processor.document_path))[0]
-            download_name = f"{original_name}_split.zip"
-            
-            def remove_files():
-                try:
-                    shutil.rmtree(output_dir, ignore_errors=True)
-                    processor.cleanup()
-                except:
-                    pass
-            
-            response = send_file(
-                zip_path,
-                as_attachment=True,
-                download_name=download_name,
-                mimetype='application/zip'
-            )
-            
-            # Schedule cleanup after response is sent
-            response.call_on_close(remove_files)
-            return response
-        
-    except Exception as e:
-        print(f"❌ Error processing split: {str(e)}")
-        return jsonify({'error': str(e), 'success': False}), 500
-
-@app.route('/split_status')
-def split_status():
-    """Check split processor status"""
-    try:
-        processor = get_split_processor()
+            download_filename = f"merged_ranges_{timestamp}.docx"
         
         return jsonify({
-            'document_loaded': processor.document_path is not None,
-            'page_count': processor.page_count,
-            'session_id': processor.session_id
+            'success': True,
+            'download_url': f'/download/{os.path.basename(result_path)}',
+            'filename': download_filename
         })
+        
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"Error splitting by range: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/split_by_pages', methods=['POST'])
+def split_by_pages():
+    """Split document by selected pages"""
+    try:
+        splitter = get_splitter()
+        
+        if not splitter.document_path:
+            return jsonify({'success': False, 'error': 'No document loaded'}), 400
+        
+        data = request.get_json()
+        selected_pages = data.get('pages', [])
+        output_type = data.get('output_type', 'separate')  # 'separate' or 'merged'
+        
+        if not selected_pages:
+            return jsonify({'success': False, 'error': 'No pages selected'}), 400
+        
+        print(f"Splitting by pages: {selected_pages}, output_type: {output_type}")
+        
+        result_path = splitter.split_by_pages(selected_pages, output_type)
+        
+        # Generate download filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        if output_type == 'separate':
+            download_filename = f"split_pages_{timestamp}.zip"
+        else:
+            download_filename = f"merged_pages_{timestamp}.docx"
+        
+        return jsonify({
+            'success': True,
+            'download_url': f'/download/{os.path.basename(result_path)}',
+            'filename': download_filename
+        })
+        
+    except Exception as e:
+        print(f"Error splitting by pages: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 if __name__ == '__main__':
     # Development server
