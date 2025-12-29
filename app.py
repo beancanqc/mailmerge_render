@@ -607,40 +607,51 @@ class SplitWordProcessor:
         
         # If we have explicit breaks, use those
         if explicit_breaks > 0 or section_breaks > 0:
+            print(f"Found explicit breaks: {explicit_breaks}, section breaks: {section_breaks}")
             return 1 + explicit_breaks + section_breaks
         
         # Estimate based on content (fallback method)
-        # This is an approximation - real page count depends on formatting, fonts, etc.
-        
-        # Count paragraphs and estimate lines
         total_text_length = 0
         paragraph_count = 0
+        non_empty_paragraphs = 0
         table_rows = 0
         
         for paragraph in doc.paragraphs:
+            paragraph_count += 1
             text = paragraph.text.strip()
             if text:  # Only count non-empty paragraphs
                 total_text_length += len(text)
-                paragraph_count += 1
+                non_empty_paragraphs += 1
         
         # Count table content
         for table in doc.tables:
             table_rows += len(table.rows)
         
-        # Rough estimation formula
-        # Average: ~25-35 lines per page, ~80 characters per line
-        estimated_lines = paragraph_count + (table_rows * 2)  # Tables take more space
+        # More aggressive estimation - typical documents have less content per page
+        # Standard page: ~250-300 words, ~1500-2000 characters including spaces
+        chars_per_page = 1200  # Reduced from 2000 - more realistic for formatted docs
+        lines_per_page = 20    # Reduced from 30 - accounts for spacing, headers, etc.
         
-        # Alternative estimation based on character count
-        chars_per_page = 2000  # Conservative estimate for formatted documents
-        pages_by_chars = max(1, total_text_length // chars_per_page)
-        pages_by_lines = max(1, estimated_lines // 30)
+        # Estimate pages based on different metrics
+        pages_by_chars = max(1, (total_text_length + 600) // chars_per_page)  # Add buffer
+        pages_by_paragraphs = max(1, (non_empty_paragraphs + 15) // lines_per_page)  # Add buffer
+        pages_by_tables = (table_rows + 8) // 10 if table_rows > 0 else 0  # ~10 table rows per page
         
-        # Use the higher estimate to be more accurate for longer documents
-        estimated_pages = max(pages_by_chars, pages_by_lines)
+        # Use the highest estimate
+        estimated_pages = max(pages_by_chars, pages_by_paragraphs, pages_by_tables)
         
-        # Cap the minimum at 1 and maximum at something reasonable
-        return max(1, min(estimated_pages, 50))  # Cap at 50 pages for safety
+        # Debug logging
+        print(f"Page estimation debug:")
+        print(f"  Total characters: {total_text_length}")
+        print(f"  Non-empty paragraphs: {non_empty_paragraphs}")
+        print(f"  Table rows: {table_rows}")
+        print(f"  Pages by chars: {pages_by_chars}")
+        print(f"  Pages by paragraphs: {pages_by_paragraphs}")
+        print(f"  Pages by tables: {pages_by_tables}")
+        print(f"  Final estimate: {estimated_pages}")
+        
+        # Ensure minimum of 1, maximum of 50
+        return max(1, min(estimated_pages, 50))
     
     def split_by_ranges(self, ranges: List[tuple], output_dir: str) -> List[str]:
         """Split document by page ranges"""
