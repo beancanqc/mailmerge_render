@@ -592,20 +592,55 @@ class SplitWordProcessor:
             return False
     
     def _count_pages(self, doc) -> int:
-        """Estimate page count based on page breaks"""
+        """Estimate page count based on content analysis"""
         page_count = 1  # Start with 1 page
         
+        # Count explicit page breaks first
+        explicit_breaks = 0
         for paragraph in doc.paragraphs:
             for run in paragraph.runs:
                 if '\f' in run.text or '\x0c' in run.text:  # Form feed / page break
-                    page_count += 1
+                    explicit_breaks += 1
         
-        # Also check for section breaks
-        for section in doc.sections:
-            if section != doc.sections[0]:  # Don't count first section
-                page_count += 1
-                
-        return page_count
+        # Count section breaks (each new section typically starts a new page)
+        section_breaks = max(0, len(doc.sections) - 1)
+        
+        # If we have explicit breaks, use those
+        if explicit_breaks > 0 or section_breaks > 0:
+            return 1 + explicit_breaks + section_breaks
+        
+        # Estimate based on content (fallback method)
+        # This is an approximation - real page count depends on formatting, fonts, etc.
+        
+        # Count paragraphs and estimate lines
+        total_text_length = 0
+        paragraph_count = 0
+        table_rows = 0
+        
+        for paragraph in doc.paragraphs:
+            text = paragraph.text.strip()
+            if text:  # Only count non-empty paragraphs
+                total_text_length += len(text)
+                paragraph_count += 1
+        
+        # Count table content
+        for table in doc.tables:
+            table_rows += len(table.rows)
+        
+        # Rough estimation formula
+        # Average: ~25-35 lines per page, ~80 characters per line
+        estimated_lines = paragraph_count + (table_rows * 2)  # Tables take more space
+        
+        # Alternative estimation based on character count
+        chars_per_page = 2000  # Conservative estimate for formatted documents
+        pages_by_chars = max(1, total_text_length // chars_per_page)
+        pages_by_lines = max(1, estimated_lines // 30)
+        
+        # Use the higher estimate to be more accurate for longer documents
+        estimated_pages = max(pages_by_chars, pages_by_lines)
+        
+        # Cap the minimum at 1 and maximum at something reasonable
+        return max(1, min(estimated_pages, 50))  # Cap at 50 pages for safety
     
     def split_by_ranges(self, ranges: List[tuple], output_dir: str) -> List[str]:
         """Split document by page ranges"""
